@@ -54,23 +54,23 @@ def fetchHistoryData():
     
     res = requests.post(gas_url, json=payload)
     student_id = payload.get("data")
+    history_data = res.json()
     #處理不含歷史紀錄的開頭
-    if(res == "true"):
+    if(history_data == "True"):
         agent_answer_response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": "你是一個英文助理專注於提供英文的相關知識，用來幫助老師進行出題、解題以及製作教材,user的content為老師名字請記得。請以第一次使用的老師建議進行的方向。"},
+                {"role": "system", "content": "你是一個英文助理專注於提供英文的相關知識，用來幫助老師進行出題、解題以及製作教材。提供老師建議關於出題、解題的方向。禁止提到與其他學科相關的內容。"},
                 {"role": "user", "content": student_id}
             ]
         )
         agent_answer = agent_answer_response.choices[0].message.content
-        print(f"[Agent0 Answer] {agent_answer}...")
+        print(f"[Agent1 Answer] {agent_answer}...")
         return jsonify({
             "assistant_answer": agent_answer
         })
     #處理含有歷史紀錄的開頭
     else:
-        history_data = res.json()
         content_str = f"""
             學生姓名：{student_id}
             歷史資料：
