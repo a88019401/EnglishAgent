@@ -6,6 +6,7 @@
 
 - [專案簡介](#englishagentmulti-agent--chroma-rag-英語學習助教系統)
 - [專案目標與核心功能](#專案目標與核心功能)
+- [文獻探討](#文獻探討)
 - [系統流程圖](#系統流程圖)
 - [資料儲存與使用者紀錄機制](#資料儲存與使用者紀錄機制)
 - [技術堆疊](#技術堆疊)
@@ -35,6 +36,31 @@
 - 提升教學效率與題目品質
 - 減少教師備課負擔
 - 提供高彈性與擴充性支援
+
+---
+## 文獻探討
+### AI 在英語教育中的應用潛力
+- 教師端方面，AI 可協助備課與回饋回應的自動化，大幅降低教學工作負擔。
+- 學習者端方面，AI 增強了學習動機、參與度與學習表現，尤其在英文寫作、溝通與閱讀理解方面有顯著幫助。
+- 現有多數工具仍缺乏「語境適應性」與「學習者個別差異調整」的能力，顯示出對個人化學習設計的迫切需求。
+
+Koç, F. Ş., & Savaş, P. (2024). The use of artificially intelligent chatbots in English language learning: A systematic meta-synthesis study of articles published between 2010 and 2024. ReCALL, 1–18. https://doi.org/10.1017/S0958344024000168
+
+
+### AI Agents 在教育領域的發展潛力
+- 基於大型語言模型（LLM）的 AI Agent 可執行知識追蹤、適性內容推薦與個別化教學任務。
+- 結合「記憶模組」與「規劃模組」的 Agent 系統能即時追蹤學習進展，並動態調整教學策略與任務排序。
+- 然而，目前仍存在「幻覺現象（hallucination）」與「事實錯誤（factual inaccuracy）」的風險，阻礙其在實際教育現場的全面應用。
+
+Chu, Z., Wang, S., Xie, J., Zhu, T., Yan, Y., Ye, J., ... & Wen, Q. (2025). LLM agents for education: Advances and applications. arXiv preprint arXiv:2503.11733.
+
+
+### 自動出題技術的困境與挑戰
+- 現行多數自動化出題系統仍集中於客觀題型，缺乏與課程進度或學習者能力對應的靈活出題機制。
+- 語意錯誤與幻覺問題降低了教育使用時的可靠性與信任度。
+- 多數系統無法有效根據個別學生的知識程度、認知風格或學習進度進行調整，限制了其個人化教學的潛力。
+
+Jadhav, P., Deore, S., Aute, S., Gaikwad, R., Barphe, S., & Meshram, E. (2024). Questomatic: Automated question formulation system. In 2024 International Conference on Sustainable Expert Systems (ICSES) (pp. 577–578). IEEE. https://doi.org/10.1109/ICSES63445.2024.10763124
 
 ---
 
@@ -125,5 +151,8 @@ cd EnglishAgent
 pip install -r requirements.txt
 python run.py
 ```
-### 出處
+
+---
+
+## 出處
 此內容原作者來自於[Github](https://github.com/a88019401/ai_agents_homework_from-my-teammates)
