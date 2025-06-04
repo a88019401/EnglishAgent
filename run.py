@@ -26,7 +26,7 @@ CORS(app)
 load_dotenv()
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-gas_url = "https://script.google.com/macros/s/AKfycbx-Ca5biY12JxXfL2SEJvdieknqChjUxdZ4c5OtOp0a2phNm62edD7m6wH_ogYNFlHsqQ/exec"
+gas_url = "https://script.google.com/macros/s/AKfycbyJFFavEZajjACFuQPphh21YjvdU4OloU7LNfowRWEdj-Bvvc-2Nk3rbFKclVjB61XS/exec"
 # 檢測答案選項
 def is_answer_pattern(text): 
     return bool(re.fullmatch(r"[abcdABCD]{3,10}", text.strip()))
@@ -55,12 +55,13 @@ def fetchHistoryData():
     res = requests.post(gas_url, json=payload)
     student_id = payload.get("data")
     history_data = res.json()
+    print(json.dumps(history_data, ensure_ascii=False, indent=2))
     #處理不含歷史紀錄的開頭
-    if(history_data == "True"):
+    if(json.dumps(history_data, ensure_ascii=False, indent=2) == "true"):
         agent_answer_response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": "你是一個英文助理專注於提供英文的相關知識，用來幫助老師進行出題、解題以及製作教材。提供老師建議關於出題、解題的方向。禁止提到與其他學科相關的內容。"},
+                {"role": "system", "content": "你是一個英文助理專注於提供英文的相關知識，用來幫助老師進行出題、解題以及製作教材。請你以一個第一次使用的狀態介紹說明並請老師輸入要進行的活動的關鍵字，如: 現在簡單式。 agent範例: 您好！我是您的英文助理，可以協助您製作教材、出題及解題。請告訴我您需要幫助的英文主題或語法重點，例如：「現在簡單式」、「被動語態」等，我將竭誠協助您！"},
                 {"role": "user", "content": student_id}
             ]
         )
@@ -155,7 +156,7 @@ def ask_multiagent_rag():
         })
 
     ## 回顧  應該要用agent 但我小懶
-    keywords = ["回顧", "歷史", "紀錄", "學習紀錄", "練習回顧"]
+    keywords = ["回顧", "歷史", "紀錄", "學習紀錄", "練習回顧", "history", "History", "record"]
     if any(kw in user_prompt for kw in keywords):
         payload = {"sheetName":"student_data",
                 "action": "fetch", 
@@ -170,7 +171,7 @@ def ask_multiagent_rag():
         agent_answer_response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": "你是一個英文助理只專注於提供英文的相關知識並以中文進行回答，用來幫助老師進行出題、解題以及製作教材,user的content中具有歷史資料。請根據以上資料為老師提供過去知識以及建議學習方向的摘要。文字簡短較佳且資料越後面代表資料越新需較為重視"},
+                {"role": "system", "content": "你是一個英文助理只專注於提供英文的相關知識並以中文進行回答，用來幫助老師進行出題、解題以及製作教材,user的content中具有歷史資料。請根據以上資料為老師提供過去知識以及建議學習方向的摘要。文字簡短較佳且資料越後面代表資料越新需較為重視。若是無資料則說明尚未有紀錄等關鍵字句。"},
                 {"role": "user", "content": content_str}
             ]
         )

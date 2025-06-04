@@ -2,7 +2,7 @@ import requests
 import json
 
 
-url = "https://script.google.com/macros/s/AKfycbx-Ca5biY12JxXfL2SEJvdieknqChjUxdZ4c5OtOp0a2phNm62edD7m6wH_ogYNFlHsqQ/exec"
+url = "https://script.google.com/macros/s/AKfycbyJFFavEZajjACFuQPphh21YjvdU4OloU7LNfowRWEdj-Bvvc-2Nk3rbFKclVjB61XS/exec"
 
 # get data
 def doGet():
