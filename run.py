@@ -156,7 +156,7 @@ def ask_multiagent_rag():
         })
 
     ## 回顧  應該要用agent 但我小懶
-    keywords = ["回顧", "歷史", "紀錄", "學習紀錄", "練習回顧", "history", "History", "record"]
+    keywords = ["回顧", "歷史", "紀錄", "學習紀錄", "練習回顧", "history", "History", "record","歷程", "資料", "回顧"]
     if any(kw in user_prompt for kw in keywords):
         payload = {"sheetName":"student_data",
                 "action": "fetch", 
