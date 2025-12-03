@@ -1,41 +1,35 @@
-# Chroma.py
+# ✅ Chroma.py (改良版)
 import os
 import glob
 import json
-from openai import OpenAI    # ✅ 改成新版
+from openai import OpenAI
 from dotenv import load_dotenv
 import chromadb
 from chromadb.config import Settings
+# 改用 LangChain 的切割器會比自己寫迴圈更聰明
+from langchain_text_splitters import RecursiveCharacterTextSplitter 
 from PyPDF2 import PdfReader
 
-# 初始化
 load_dotenv()
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))    # ✅ 新版初始化
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+chroma_client = chromadb.PersistentClient(path="./chroma_db") # 建議用 PersistentClient 比較穩定
 
-chroma_client = chromadb.Client(Settings(persist_directory="./chroma_db"))
-
-def extract_text_from_pdf(pdf_path):
-    """讀取 PDF 並回傳文字"""
-    text = ""
+def extract_text_with_metadata(pdf_path):
+    """讀取 PDF 並回傳每一頁的文字與頁碼"""
+    pages_content = []
     try:
         reader = PdfReader(pdf_path)
-        for page in reader.pages:
-            try:
-                page_text = page.extract_text()
-                if page_text:
-                    text += page_text + "\n"
-            except Exception as e:
-                print(f"⚠️ 頁面讀取錯誤：{e}")
+        for i, page in enumerate(reader.pages):
+            text = page.extract_text()
+            if text:
+                # 簡單的清洗：去除多餘換行，保留段落
+                clean_text = text.replace('\n', ' ').replace('  ', ' ')
+                pages_content.append({"text": clean_text, "page": i + 1})
     except Exception as e:
-        print(f"❌ 無法讀取 PDF：{pdf_path}，錯誤：{e}")
-    return text
-
-def split_text(text, chunk_size=500):
-    """把文字切成小段"""
-    return [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
+        print(f"❌ 讀取失敗：{pdf_path}, {e}")
+    return pages_content
 
 def get_embedding(text):
-    """呼叫 OpenAI API 產生向量"""
     response = client.embeddings.create(
         model="text-embedding-3-small",
         input=[text]
@@ -43,66 +37,43 @@ def get_embedding(text):
     return response.data[0].embedding
 
 def build_manuals_collection():
-    """建立 PDF手冊向量資料庫"""
-    manuals_collection = chroma_client.get_or_create_collection(name="manuals")
-
-    if not os.path.exists("data/user_manuals"):
-        print("⚠️ 找不到資料夾 data/user_manuals，跳過 PDF 建立")
-        return
+    collection = chroma_client.get_or_create_collection(name="manuals")
+    
+    # 使用遞迴切割器，優先在句號、換行處切割，並設定重疊
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=500,
+        chunk_overlap=100, # 重疊 100 字，避免切斷文法規則
+        separators=["\n\n", "\n", "。", "！", "？", ".", " ", ""]
+    )
 
     pdf_files = glob.glob("data/user_manuals/*.pdf")
-    print(f"✅ 共找到 {len(pdf_files)} 本PDF教材")
-
+    
     for pdf_path in pdf_files:
         filename = os.path.basename(pdf_path)
-        print(f"📄 正在處理：{filename}")
+        print(f"📄 處理：{filename}")
+        
+        pages = extract_text_with_metadata(pdf_path)
+        
+        for page_data in pages:
+            chunks = splitter.split_text(page_data["text"])
+            
+            for idx, chunk in enumerate(chunks):
+                # ⭐ 這裡雖然會花一點錢，但如果可以由 AI 幫忙生成這段 chunk 的摘要當作 embedding 會更準
+                # 目前先維持原始做法，但在 metadata 加入來源資訊
+                embedding = get_embedding(chunk)
+                
+                collection.add(
+                    ids=[f"{filename}_p{page_data['page']}_{idx}"],
+                    documents=[chunk],
+                    embeddings=[embedding],
+                    metadatas=[{
+                        "source": filename,
+                        "page": page_data['page'],
+                        "type": "textbook"
+                    }] # ⭐ 關鍵：加入 Metadata
+                )
+    print("✅ 教材庫建立完成")
 
-        text = extract_text_from_pdf(pdf_path)
-        if not text.strip():
-            print(f"⚠️ 檔案無內容，略過：{filename}")
-            continue
-
-        chunks = split_text(text)
-
-        for idx, chunk in enumerate(chunks):
-            embedding = get_embedding(chunk)
-            manuals_collection.add(
-                ids=[f"{filename}_{idx}"],
-                documents=[chunk],
-                embeddings=[embedding]
-            )
-    print("✅ PDF手冊資料已建立完畢")
-
-def build_questions_collection():
-    """建立 題庫向量資料庫"""
-    questions_collection = chroma_client.get_or_create_collection(name="english_questions")
-    json_path = "data/english_question_bank.json"
-
-    if not os.path.exists(json_path):
-        print("⚠️ 找不到題庫 json：data/english_question_bank.json，跳過建立")
-        return
-
-    with open(json_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    print(f"✅ 共載入 {len(data)} 題題庫資料")
-
-    for item in data:
-        text = f"[{item['type']}] {item['question']} Answer: {item['answer']}"
-        embedding = get_embedding(text)
-
-        questions_collection.add(
-            ids=[item['id']],
-            documents=[text],
-            embeddings=[embedding]
-        )
-    print("✅ 題庫資料已建立完畢")
-
-def main():
-    print("🎯 開始建立 Chroma 向量資料庫")
-    build_manuals_collection()
-    build_questions_collection()
-    print("🎉 Chroma資料庫已完成！可以開始使用")
-
+# build_questions_collection 維持你原本的邏輯即可，或是同樣加入 difficulty (難度) 的 metadata
 if __name__ == "__main__":
-    main()
+    build_manuals_collection()

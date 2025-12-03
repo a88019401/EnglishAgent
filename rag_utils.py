@@ -27,16 +27,6 @@ def get_embedding(text):
     )
     return response.data[0].embedding
 
-def search_manual_chunks(query_text, top_k=3):
-    embedding = get_embedding(query_text)
-    results = get_manual_collection().query(
-        query_embeddings=[embedding],
-        n_results=top_k,
-        include=["documents", "distances"]
-    )
-    documents = results["documents"][0] if results["documents"] else []
-    return "\n---\n".join(documents)
-
 def search_question_bank(query_text, top_k=5):
     embedding = get_embedding(query_text)
     results = get_question_collection().query(
@@ -62,3 +52,31 @@ def run_agent2_generate_examples(user_prompt,  question_context):
         ]
     )
     return response.choices[0].message.content
+
+
+
+def search_manual_chunks(query_text, top_k=3, file_filter=None):
+    """
+    file_filter: 如果使用者指定 "國二範圍"，可以傳入檔案名稱來過濾
+    """
+    embedding = get_embedding(query_text)
+    
+    #  修正點：預設為 None，而不是 {}
+    where_clause = None 
+    if file_filter:
+        where_clause = {"source": file_filter}
+
+    results = get_manual_collection().query(
+        query_embeddings=[embedding],
+        n_results=top_k,
+        where=where_clause, # ⭐ 如果是 None，Chroma 就會搜尋全部，不會報錯
+        include=["documents", "metadatas"]
+    )
+    
+    # 格式化輸出
+    formatted_results = []
+    if results["documents"]:
+        for doc, meta in zip(results["documents"][0], results["metadatas"][0]):
+            formatted_results.append(f"[教材背景: {meta['source']}]\n{doc}")
+            
+    return "\n\n".join(formatted_results)

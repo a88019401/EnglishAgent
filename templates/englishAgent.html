@@ -1,43 +1,726 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
-  <head>
-    <meta charset="UTF-8" />
-    <title>仿 ChatGPT 對話介面</title>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>English Agent</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+        
     <style>
-      body {
-        font-family: sans-serif;
-        max-width: 700px;
-        margin: auto;
-        padding: 2rem;
-        background: #f7f7f7;
-      }
-      #chatBox div {
-        margin: 10px 0;
-        padding: 10px;
-        border-radius: 8px;
-      }
-      .user {
-        background: #d2e3fc;
-        text-align: right;
-      }
-      .bot {
-        background: #e2e2e2;
-        text-align: left;
-      }
-    </style>
-  </head>
-  <body>
-    <h1>AI 助教對話介面</h1>
-    <div id="chatBox"></div>
-    <input
-      id="input"
-      type="text"
-      placeholder="輸入任務問題，如：banana 是什麼意思"
-      style="width: 70%"
-      onkeypress="if(event.key==='Enter') sendMessage()" />
-    <button type="button" onclick="sendMessage()">送出</button>
+        /* --- 全局設定 --- */
+        body {
+            height: 100vh;
+            overflow: hidden;
+            background-color: #eef1f5; /* 柔和背景 */
+            font-family: 'Segoe UI', "Microsoft JhengHei", sans-serif;
+            margin: 0; /* 確保無邊距 */
+        }
 
-    <!-- ✅ 建議只保留這個 -->
-    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
-  </body>
+        /* --- 佈局容器 --- */
+        .main-container {
+            display: flex;
+            height: 100%;
+            width: 100%;
+        }
+
+        /* --- 側邊欄 (Sidebar) --- */
+        .sidebar {
+            width: 280px;
+            background-color: #2c3e50;
+            color: #ecf0f1;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0; /* 防止被擠壓 */
+            box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+            z-index: 100;
+            transition: transform 0.3s ease;
+        }
+
+        .sidebar-header {
+            padding: 1.5rem 1rem;
+            background-color: #1a252f;
+            border-bottom: 1px solid #34495e;
+        }
+
+        .history-list {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 10px;
+        }
+
+        /* 歷史紀錄按鈕 */
+        .history-item {
+            display: block;
+            width: 100%; /* 修正寬度 */
+            background: transparent;
+            border: none;
+            text-align: left;
+            color: #bdc3c7;
+            padding: 12px 15px;
+            margin-bottom: 5px;
+            border-radius: 8px;
+            transition: all 0.2s;
+            cursor: pointer;
+            font-size: 0.95rem;
+            text-decoration: none;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .history-item:hover {
+            background-color: #34495e;
+            color: #fff;
+            padding-left: 20px;
+        }
+
+        .history-item.active {
+            background-color: #3498db;
+            color: white;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+        
+        .history-item i {
+            margin-right: 8px;
+        }
+
+        /* --- 右側對話區 --- */
+        .chat-area {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            background-color: #ffffff;
+            background-image: radial-gradient(#e5e5f7 1px, #ffffff 1px); /* 點點背景修正 */
+            background-size: 20px 20px;
+            position: relative; /* 關鍵：讓絕對定位的子元素參考 */
+            width: 100%; /* 確保滿版 */
+        }
+
+        #chatBox {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 2rem;
+            padding-bottom: 120px; /* 預留底部空間給輸入框 */
+            scroll-behavior: smooth;
+        }
+
+        /* --- 訊息列 (Row) --- */
+        .message-row {
+            display: flex;
+            align-items: flex-start; /* 讓頭像和氣泡頂部對齊 */
+            margin-bottom: 1.5rem;
+            width: 100%; 
+            position: relative;
+        }
+
+        /* 機器人靠左 */
+        .message-row.bot {
+            justify-content: flex-start;
+        }
+
+        /* 使用者靠右 */
+        .message-row.user {
+            flex-direction: row-reverse; /* 讓頭像在最右邊 */
+            justify-content: flex-start; /* 因為反轉了，start 其實是視覺上的右邊 */
+        }
+
+        /* --- 頭像 (Avatar) --- */
+        .avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            flex-shrink: 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .bot .avatar {
+            background-color: #fff;
+            color: #e67e22;
+            border: 1px solid #ddd;
+        }
+
+        .user .avatar {
+            background-color: #3498db;
+            color: white;
+        }
+
+        /* --- 氣泡 (Bubble) --- */
+        .message-bubble {
+            max-width: 75%;          /* ✅ 關鍵：限制最大寬度，預留空間 */
+            width: fit-content;      /* ✅ 關鍵：寬度隨內容自動調整，不要預設全寬 */
+            min-width: 80px;         /* 避免內容太少時氣泡太小 */
+            padding: 12px 18px;
+            border-radius: 18px;
+            position: relative;
+            font-size: 1rem;
+            line-height: 1.6;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+            
+            /* ✅ 核心修正：強制長文字換行，防止 JSON 撐開版面 */
+            word-wrap: break-word;
+            overflow-wrap: break-word; 
+            word-break: break-word; 
+        }
+
+        /* 針對氣泡內的程式碼區塊 (JSON) 做特別處理 */
+        .message-content pre {
+            white-space: pre-wrap;       /* 保留格式但允許換行 */
+            word-wrap: break-word;       /* 強制長單字換行 */
+            background-color: #f8f9fa;   /* 淺灰底色區分 */
+            padding: 10px;
+            border-radius: 8px;
+            margin-top: 5px;
+            max-width: 100%;             /* 確保不超出氣泡 */
+            overflow-x: hidden;          /* 隱藏水平捲軸 */
+        }
+
+        .bot .message-bubble {
+            background-color: #ffffff;
+            color: #2c3e50;
+            border: 1px solid #eee;
+            border-top-left-radius: 4px; /* 對話框尖角 */
+            margin-left: 10px;           /* 與頭像的距離 */
+        }
+
+        .user .message-bubble {
+            background-color: #3498db;  
+            color: #ffffff;               
+            border-top-right-radius: 4px;
+            margin-right: 10px;          /* 與頭像的距離 */
+        }
+
+        /* --- Markdown 內容樣式 --- */
+        .message-content h1, .message-content h2, .message-content h3 {
+            font-size: 1.1em;
+            font-weight: 700;
+            margin-top: 10px;
+            margin-bottom: 8px;
+            color: inherit;
+        }
+        
+        .bot .message-content h3 { color: #e67e22; }
+
+        .message-content ul, .message-content ol {
+            margin: 0;
+            padding-left: 20px;
+            margin-bottom: 10px;
+        }
+
+        .message-content li { margin-bottom: 4px; }
+        .message-content p { margin-bottom: 8px; }
+        
+        /* 強調重點 */
+        .bot .message-content strong {
+            color: #d35400; 
+            background-color: #fff5e6;
+            padding: 0 4px;
+            border-radius: 4px;
+        }
+        
+        /* 連結樣式 */
+        .message-content a { color: #3498db; text-decoration: underline; }
+
+        /* --- 輸入區 (Input Area) - 修正定位問題 --- */
+        .input-area {
+            position: absolute; /* ✅ 關鍵：固定定位 */
+        bottom: 0;          /* ✅ 關鍵：貼底 */
+        left: 0;            /* ✅ 關鍵：左對齊 */
+        right: 0;           /* ✅ 關鍵：右對齊 */
+        background: linear-gradient(180deg, rgba(255,255,255,0) 0%, #fff 40%);
+        padding: 20px;
+        padding-bottom: 30px;
+        display: flex;      /* ✅ 關鍵：Flex 排版 */
+        justify-content: center; /* ✅ 關鍵：置中 */
+        pointer-events: none; /* 讓背景可穿透 */
+        z-index: 10;
+    }
+
+    .input-group-custom {
+        pointer-events: auto; /* 輸入框恢復可點擊 */
+        width: 100%;
+        max-width: 800px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+        border-radius: 50px;
+        padding: 5px;
+        border: 1px solid #eee;
+        background: white;
+        display: flex; /* ✅ 讓按鈕和輸入框並排 */
+        align-items: center;
+    }
+
+    .input-group-custom input {
+        border: none;
+        padding: 12px 25px;
+        flex-grow: 1;
+        outline: none;
+        font-size: 1rem;
+        background: transparent;
+    }
+
+    .input-group-custom button {
+        background-color: #3498db;
+        color: white;
+        border: none;
+        border-radius: 50%;
+        width: 45px;
+        height: 45px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-right: 5px;
+        transition: transform 0.2s;
+        cursor: pointer;
+        flex-shrink: 0; /* 防止按鈕被壓扁 */
+    }
+    
+    .input-group-custom button:hover {
+        transform: scale(1.1);
+        background-color: #2980b9;
+    }
+
+    /* --- 打字動畫 --- */
+    .typing-indicator { display: flex; gap: 4px; padding: 4px 8px; }
+    .typing-dot {
+        width: 6px; height: 6px; background-color: #bbb; border-radius: 50%;
+        animation: typing 1.4s infinite ease-in-out both;
+    }
+    .typing-dot:nth-child(1) { animation-delay: -0.32s; }
+    .typing-dot:nth-child(2) { animation-delay: -0.16s; }
+    @keyframes typing {
+        0%, 80%, 100% { transform: scale(0); }
+        40% { transform: scale(1); }
+    }
+    
+    /* Loading Spinner Overlay */
+    .spinner-overlay {
+        display: none;
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(255,255,255,0.7);
+        z-index: 9999;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* --- RWD 手機適配 --- */
+    @media (max-width: 768px) {
+        .sidebar {
+            position: absolute;
+            height: 100%;
+            transform: translateX(-100%);
+        }
+        .sidebar.show { transform: translateX(0); }
+        .mobile-toggle { display: block !important; }
+        .message-bubble { max-width: 85%; }
+    }
+    .mobile-toggle {
+        display: none;
+        position: absolute;
+        top: 15px; left: 15px; z-index: 1001;
+    }
+</style>
+</head>
+<body>
+
+    <input type="hidden" id="studentId" value="{{ studentId }}">
+
+    <div class="main-container">
+        <button class="btn btn-dark mobile-toggle" onclick="toggleSidebar()">
+            <i class="bi bi-list"></i>
+        </button>
+
+        <div class="sidebar" id="sidebar">
+            <div class="sidebar-header d-flex justify-content-between align-items-center">
+                <span class="fs-5 fw-bold"><i class="bi bi-robot"></i> English Agent</span>
+                <button class="btn btn-sm btn-outline-secondary text-white" onclick="startNewChat()" title="新對話">
+                    <i class="bi bi-pencil-square"></i>
+                </button>
+            </div>
+            <div class="history-list" id="historyList">
+                <div class="text-center text-secondary mt-3">載入中...</div>
+            </div>
+            <div class="p-3 border-top border-secondary">
+                <small class="text-secondary">User: {{ studentId }}</small>
+            </div>
+        </div>
+
+        <div class="chat-area">
+            <div id="chatBox">
+                </div>
+
+            <div class="input-area">
+                <div class="input-group-custom">
+                    <input type="text" id="userInput" placeholder="輸入任務問題，如：現在簡單式 (Enter 送出)" onkeypress="handleKeyPress(event)">
+                    <button onclick="sendMessage()">
+                        <i class="bi bi-send-fill"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="spinner-overlay" id="loadingSpinner">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script>
+        const studentId = document.getElementById('studentId').value;
+        let fullHistory = []; // 儲存完整的歷史資料
+        const topicCache = {}; // 用來儲存已讀取過的主題對話
+
+        // 初始化
+        window.onload = function() {
+            fetchHistory();
+
+            fetch('/new_conversation', { method: 'POST' });
+        };
+
+        // 1. 獲取歷史紀錄
+        function fetchHistory() {
+            fetch('/fetchHistoryData', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                sheetName: 'student_data',
+                action: 'fetch_topics', // 只抓取當前主題的內容
+                data: studentId
+            })
+            })
+            .then(res => res.json())
+            .then(topics => {
+                renderSidebar(topics); // 這裡的 topics 只有簡單的 metadata
+                appendMessage('bot', '你好！我是你的英文助教。請告訴我你想練習的主題，例如：「過去進行式」或「假設語氣」。');
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                appendMessage('bot', '系統連線錯誤，無法取得歷史紀錄。');
+            });
+        }
+
+        // 2. 渲染側邊欄 (Group by Topic)
+        function renderSidebar(historyData) {
+            const listContainer = document.getElementById('historyList');
+            listContainer.innerHTML = '';
+
+            if (!Array.isArray(historyData) || historyData.length === 0) {
+                listContainer.innerHTML = '<div class="text-center text-muted mt-3">尚無紀錄</div>';
+                return;
+            }
+
+            const seenTopics = new Set();
+            
+            // 複製一份並「反轉」，讓最新的主題顯示在列表最上面
+            // 注意：historyData 原始順序應該是依照時間舊->新 (Excel Row 2 -> Row N)
+            const reversedHistory = [...historyData].reverse();
+
+            reversedHistory.forEach(item => {
+                // ✅ 關鍵修改：我們現在只認 "topic" 欄位
+                // 如果舊資料沒有 topic，您可以決定要忽略還是顯示 "未命名主題"
+                const topicName = item.topic; 
+
+                if (topicName && !seenTopics.has(topicName)) {
+                    seenTopics.add(topicName);
+
+                    const btn = document.createElement('button');
+                    btn.className = 'history-item';
+                    
+                    // 根據 category 給不同 icon (裝飾用)
+                    let icon = '<i class="bi bi-chat-dots"></i> '; 
+                    if (item.category === 'lesson') icon = '<i class="bi bi-book"></i> ';
+                    if (item.category === 'question') icon = '<i class="bi bi-pencil-square"></i> ';
+                    
+                    btn.innerHTML = `${icon} <span>${topicName}</span>`;
+                    
+                    // ✅ 關鍵修改：點擊時，傳入「Topic 名稱」而不是 User 輸入
+                    btn.onclick = (e) => loadTopicContext(topicName, e);
+                    
+                    listContainer.appendChild(btn);
+                }
+            });
+        }
+
+        // 3. 點擊側邊欄：載入特定主題的對話
+        function loadTopicContext(topicName, event) {
+            // UI 處理 (反白按鈕)
+            document.querySelectorAll('.history-item').forEach(el => el.classList.remove('active'));
+            if (event && event.target) {
+                event.target.closest('.history-item').classList.add('active');
+            }
+
+            // 清空對話框並顯示載入中
+            const chatBox = document.getElementById('chatBox');
+            chatBox.innerHTML = '<div class="text-center p-3 text-muted">讀取對話中...</div>';
+
+            updateServerTopic(topicName);  // 更新目前主要的對話主題
+
+            fetchHistoryAndRender(topicName); // 抓取該主題的歷史紀錄
+        }
+
+        // 4. 發送新訊息
+        function sendMessage() {
+            const input = document.getElementById('userInput');
+            const prompt = input.value.trim();
+            if (!prompt) return;
+
+            // 1. 立刻顯示 User 訊息
+            appendMessage('user', prompt);
+            input.value = '';
+            
+            // 2. 顯示「正在輸入...」動畫
+            showTypingIndicator(); 
+
+            // 3. 發送到後端
+            fetch(`/ask_multiagent_rag?studentId=${studentId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt: prompt })
+            })
+            .then(response => response.json())
+            .then(data => {
+                // 4. 收到回應後，立刻移除動畫
+                removeTypingIndicator();
+
+                // 5. 顯示 Agent 1 (教材/回答)
+                if (data.assistant_answer) {
+                    // 判斷一下是「教材」還是「解題」
+                    // 簡單判斷：如果有 practice_questions 通常是教材模式，否則可能是解題
+                    const prefix = data.practice_questions ? "📚 <strong>教材筆記：</strong>\n" : "💡 <strong>回答解析：</strong>\n";
+                    appendMessage('bot', `${prefix}${data.assistant_answer}`);
+                }
+                
+                // 6. 顯示 Agent 2 (題目) - 稍微延遲一點點出現，製造層次感
+                if (data.practice_questions) {
+                    setTimeout(() => {
+                        appendMessage('bot', `✍️ <strong>練習題目：</strong>\n${data.practice_questions}`);
+                    }, 600);
+                }
+                
+                // 7. 若有回傳標題，更新側邊欄 (背景執行)
+                fetchHistorySilent();
+            })
+            .catch(err => {
+                // 發生錯誤也要移除動畫，不然它會一直跳
+                removeTypingIndicator();
+                appendMessage('bot', '發生錯誤，請稍後再試。');
+                console.error(err);
+            });
+        }
+        
+
+        // 移除「對方正在輸入...」的氣泡
+        function removeTypingIndicator() {
+            const row = document.getElementById('typing-indicator-row');
+            if (row) {
+                row.remove();
+            }
+        }
+
+        // 更新目前對話的主題
+        function updateServerTopic(topicName) {
+            fetch('/set_current_topic', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ topic: topicName })
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log("Server topic updated:", data);
+            })
+            .catch(error => console.error("Error updating topic:", error));
+        }
+
+        // 抓取並渲染特定主題
+        function fetchHistoryAndRender(topicName) {
+            const chatBox = document.getElementById('chatBox');
+            chatBox.innerHTML = ''; // 先清空
+
+            // 1. 檢查快取：如果之前讀過，直接拿出來用，不用問後端
+            if (topicCache[topicName]) {
+                console.log(`[Cache Hit] 讀取快取: ${topicName}`);
+                renderChatContent(topicCache[topicName]); // 直接渲染
+                return; // 結束函式，不發送網路請求
+            }
+
+            //  2. 若無快取，則顯示 Loading 並發送請求
+            chatBox.innerHTML = '<div class="text-center p-3 text-muted">讀取對話中...</div>';
+
+            fetch('/fetchHistoryData', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    sheetName: 'student_data',
+                    action: 'fetch_detail',
+                    data: studentId,
+                    topic: topicName
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                // 清除 Loading
+                chatBox.innerHTML = ''; 
+
+                let historyData = [];
+                if (Array.isArray(data)) {
+                    historyData = data;
+                } else if (data.raw_history) {
+                    historyData = data.raw_history;
+                }
+                
+                // 3. 寫入快取：把辛苦抓來的資料存起來
+                topicCache[topicName] = historyData; 
+                console.log(`[Cache Set] 已快取: ${topicName}`);
+
+                // 渲染畫面
+                renderChatContent(historyData);
+            })
+            .catch(err => {
+                console.error("渲染錯誤:", err);
+                chatBox.innerHTML = '<div class="text-center text-danger">讀取失敗</div>';
+            });
+        }
+
+        // 抽離出的共用渲染邏輯 (讓程式碼更乾淨)
+        function renderChatContent(logs) {
+            const chatBox = document.getElementById('chatBox');
+            
+            if (!logs || logs.length === 0) {
+                chatBox.innerHTML = '<div class="text-center text-muted">尚無此主題內容</div>';
+                return;
+            }
+
+            logs.forEach(log => {
+                if (log.user) appendMessage('user', log.user);
+                if (log.agent) appendMessage('bot', log.agent);
+            });
+            
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        // 顯示對話頭像
+        function showTypingIndicator() {
+            const chatBox = document.getElementById('chatBox');
+        
+            // 建立外層容器 (Row)
+            const row = document.createElement('div');
+            row.className = 'message-row bot';
+            row.id = 'typing-indicator-row'; // 給個 ID 方便等下刪除
+            
+            // 建立頭像 (Avatar) - 保持與 CSS 一致的結構
+            const avatar = document.createElement('div');
+            avatar.className = 'avatar';
+            avatar.innerHTML = '<i class="bi bi-robot"></i>';
+
+            // 建立氣泡 (Bubble)
+            const bubble = document.createElement('div');
+            bubble.className = 'message-bubble';
+            
+            // 建立三個圓點的動畫結構
+            const indicator = document.createElement('div');
+            indicator.className = 'typing-indicator';
+            indicator.innerHTML = `
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+            `;
+            
+            bubble.appendChild(indicator);
+            row.appendChild(avatar); // 先加頭像
+            row.appendChild(bubble); // 再加氣泡
+            chatBox.appendChild(row);
+            
+            // 捲動到底部
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+        // 背景更新歷史 (不顯示 loading，不重繪 chatbox)
+        function fetchHistorySilent() {
+             fetch('/fetchHistoryData', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sheetName: 'student_data', action: 'fetch', data: studentId })
+            })
+            .then(res => res.json())
+            .then(data => {
+                fullHistory = data.raw_history || [];
+                renderSidebar(fullHistory); // 只重繪側邊欄
+            });
+        }
+
+        // 5. 輔助功能：顯示訊息
+        function appendMessage(role, text) {
+            const chatBox = document.getElementById('chatBox');
+            const row = document.createElement('div');
+            row.className = `message-row ${role}`;
+
+            const avatar = document.createElement('div');
+            avatar.className = 'avatar';
+            
+            // 根據角色決定 Icon (機器人顯示機器人圖示，使用者顯示人像圖示)
+            if (role === 'bot') {
+                avatar.innerHTML = '<i class="bi bi-robot"></i>';
+            } else {
+                avatar.innerHTML = '<i class="bi bi-person-fill"></i>';
+            }
+            
+            const bubble = document.createElement('div');
+            bubble.className = 'message-bubble';
+            
+            // 處理換行
+            const content = document.createElement('div');
+            content.className = 'message-content';
+            content.innerHTML = marked.parse(text);
+    
+            bubble.appendChild(content);
+            row.appendChild(bubble);
+            chatBox.appendChild(row);
+
+            // 自動捲動到底部
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        function handleKeyPress(e) {
+            if (e.key === 'Enter') sendMessage();
+        }
+
+        function startNewChat() {
+            // 1. 呼叫後端清除 Session
+            fetch('/new_conversation', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log("New chat started:", data.message);
+
+                // 2. 清空前端聊天畫面
+                const chatBox = document.getElementById('chatBox');
+                chatBox.innerHTML = '';
+
+                // 3. 清空輸入框
+                document.getElementById('userInput').value = '';
+
+                // 4. 移除側邊欄的「選取中」狀態 (active class)
+                document.querySelectorAll('.history-item').forEach(el => el.classList.remove('active'));
+
+                // 5. 顯示歡迎語 (模擬 Agent 主動打招呼)
+                appendMessage('bot', '你好！我是你的英文助教。請告訴我你想練習的主題，例如：「過去進行式」或「假設語氣」。');
+            })
+            .catch(error => {
+                console.error('Error starting new chat:', error);
+            });
+        }
+
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('show');
+        }
+    </script>
+</body>
 </html>
