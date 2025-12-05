@@ -1,7 +1,7 @@
 
 async function entryAgent() {
 
-  document.getElementById('loading').style.display = 'block';
+  document.getElementById('loading').style.display = 'flex';
   const inputStudentID = document.getElementById("inputStudentID").value;
   const inputPassword = document.getElementById("inputPassword").value;
 

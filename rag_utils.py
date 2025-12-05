@@ -3,7 +3,7 @@ import os
 import chromadb
 from openai import OpenAI
 from dotenv import load_dotenv
-from prompt import format_agent2_prompt
+from prompt import format_quiz_prompt
 
 load_dotenv()
 
@@ -37,21 +37,21 @@ def search_question_bank(query_text, top_k=5):
     documents = results["documents"][0] if results["documents"] else []
     return "\n---\n".join(documents)
 
-def run_agent1_retrieve_context(user_prompt):
-    manual = search_manual_chunks(user_prompt)
-    questions = search_question_bank(user_prompt)
-    return f"【教材內容】\n{manual}\n\n【題庫內容】\n{questions}"
+# def run_agent1_retrieve_context(user_prompt):
+#     manual = search_manual_chunks(user_prompt)
+#     questions = search_question_bank(user_prompt)
+#     return f"【教材內容】\n{manual}\n\n【題庫內容】\n{questions}"
 
-def run_agent2_generate_examples(user_prompt,  question_context):
-    followup_prompt = format_agent2_prompt(user_prompt,  question_context)
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {"role": "system", "content": "你是英文測驗題目設計老師，嚴格只能根據教師指定的【題庫內容】出題，禁止使用自身語言知識。"},
-            {"role": "user", "content": followup_prompt}
-        ]
-    )
-    return response.choices[0].message.content
+# def run_agent2_generate_examples(user_prompt,  question_context):
+#     followup_prompt = format_quiz_prompt(user_prompt,  question_context)
+#     response = client.chat.completions.create(
+#         model="gpt-4o",
+#         messages=[
+#             {"role": "system", "content": "你是英文測驗題目設計老師，嚴格只能根據教師指定的【題庫內容】出題，禁止使用自身語言知識。"},
+#             {"role": "user", "content": followup_prompt}
+#         ]
+#     )
+#     return response.choices[0].message.content
 
 
 

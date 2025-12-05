@@ -1,80 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
 <head>
-<meta charset="utf-8">
+    <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>登入英文練習系統</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://getbootstrap.com/docs/5.3/assets/css/docs.css" rel="stylesheet">
-    <title>首頁</title>
-    <script defer src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/js/bootstrap.bundle.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    
     <style>
-      body, html {
-        height: 100%;
-        margin: 0;
-      }
+        body, html {
+            height: 100%;
+            margin: 0;
+            font-family: 'Segoe UI', Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
 
-      .center-container {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        height: 100vh;
-      }
-      .btn { 
-        margin-right: 30;
-        margin-left: 30;
-        margin-bottom: 10;
-      }
+        /* 背景設定：柔和的藍紫漸層 */
+        body {
+            background:  #667eea;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
 
-      .spinner {
-        border: 6px solid #f3f3f3;
-        border-top: 6px solid #3498db;
-        border-radius: 50%;
-        width: 40px;
-        height: 40px;
-        animation: spin 1s linear infinite;
-      }
-      @keyframes spin {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
-      }
+        /* 卡片優化 */
+        .login-card {
+            border: none;
+            border-radius: 1rem; /* 圓角 */
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2); /* 質感陰影 */
+            background: rgba(255, 255, 255, 0.95); /* 輕微透明 */
+            overflow: hidden;
+        }
+
+        .card-header-custom {
+            background-color: transparent;
+            text-align: center;
+            padding-bottom: 0;
+            margin-bottom: 20px;
+        }
+
+        .card-header-custom h3 {
+            color: #4a5568;
+            font-weight: 700;
+        }
+
+        /* 按鈕優化 */
+        .btn-custom {
+            background:  #667eea;
+            border: none;
+            color: white;
+            padding: 12px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .btn-custom:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(118, 75, 162, 0.4);
+            color: #764ba2;
+        }
+
+        .btn-custom:active {
+            transform: translateY(0);
+        }
+
+        /* Loading 遮罩優化 */
+        #loading {
+            position: fixed;
+            top: 50%; 
+            left: 50%; 
+            transform: translate(-50%, -50%); /* 絕對置中 */
+            z-index: 9999;
+            
+            background-color: rgba(0, 0, 0, 0.7); 
+            padding: 30px;
+            border-radius: 15px;
+            
+            /* 讓內容垂直排列並置中 */
+            display: flex;  
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
     </style>
-  </head>
-<body class="">
-  <div class="center-container">
-    <div class="card w-50 mb-3 ">
-      <div class="card-body">
-        <h5 class="card-title">登入英文練習系統</h5>
-        <form>
-          <div class="row mb-3">
-            <label for="inputEmail3" class="col-sm-2 col-form-label">StudentID</label>
-            <div class="col-sm-10">
-              <input type="text" class="form-control" id="inputStudentID">
+</head>
+<body>
+
+    <div class="container">
+        <div class="row justify-content-center">
+            <div class="col-md-6 col-lg-5 col-xl-4">
+                <div class="card login-card p-4 p-md-5">
+                    <div class="card-body">
+                        <div class="card-header-custom">
+                            <i class="bi bi-mortarboard-fill text-primary" style="font-size: 3rem;"></i>
+                            <h3 class="mt-3">Welcome Back</h3>
+                            <p class="text-muted">登入英文練習系統</p>
+                        </div>
+
+                        <form>
+                            <div class="form-floating mb-3">
+                                <input type="text" class="form-control" id="inputStudentID" placeholder="StudentID">
+                                <label for="inputStudentID"><i class="bi bi-person-badge me-2"></i>StudentID</label>
+                            </div>
+
+                            <div class="form-floating mb-4">
+                                <input type="password" class="form-control" id="inputPassword" placeholder="Password">
+                                <label for="inputPassword"><i class="bi bi-lock-fill me-2"></i>Password</label>
+                            </div>
+
+                            <div class="d-grid gap-2">
+                                <button type="button" class="btn btn-custom rounded-pill" id="liveToastBtn" onclick="entryAgent()">
+                                    進入頁面 <i class="bi bi-arrow-right-circle ms-1"></i>
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
             </div>
-          </div>
-          <div class="row mb-3">
-            <label for="inputPassword3" class="col-sm-2 col-form-label">Password</label>
-            <div class="col-sm-10">
-              <input type="password" class="form-control" id="inputPassword">
-            </div>
-          </div>
-          <button type="button" class="btn btn-primary col-8 d-block mx-auto" id="liveToastBtn" onclick="entryAgent()">進入頁面</button>
-          <script src="{{ url_for('static', filename='js/index.js') }}"></script>
-          <!--登入失敗-->
-          <div aria-live="polite" aria-atomic="true" class="bg-body-secondary position-relative bd-example-toasts rounded-3">
-          <div class="toast-container p-3 top-0 start-50 translate-middle-x">
-            <div class="toast"  id="toastFail">
-              <div class="toast-header bg-danger">
-                <img class="rounded me-2">
-                <strong class="me-auto text-white">登入失敗</strong>
-              </div>
-            </div>
-          </div>
         </div>
-        </form>
-      </div>
-      <!-- Loading Spinner -->
-      <div id="loading" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%, -50%);
-        z-index:9999; background-color: rgba(0,0,0,0.5); padding: 20px; border-radius: 10px;">
-        <div class="spinner"></div>
-      </div>
     </div>
-  </div>
+
+<div id="loading" style="display: none;">
+    <div class="spinner-border text-light" style="width: 3rem; height: 3rem;" role="status">
+        <span class="visually-hidden">Loading...</span>
+    </div>
+    <div class="mt-3 fw-bold text-white">載入中，請稍候...</div>
+</div>
+
+<div class="toast-container position-fixed top-0 start-50 translate-middle-x p-3">
+    <div id="toastFail" class="toast align-items-center text-bg-danger border-0" role="alert" aria-live="assertive" aria-atomic="true">
+        <div class="d-flex">
+            <div class="toast-body">
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                <strong>登入失敗</strong> 請檢查學號或密碼。
+            </div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>
+    </div>
+</div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/index.js') }}"></script>
+
+    <script>
+        // 覆寫原本的 loading 顯示方式以配合新的 flex 佈局
+        function showLoading() {
+            document.getElementById('loading').style.display = 'flex';
+        }
+        function hideLoading() {
+            document.getElementById('loading').style.display = 'none';
+        }
+        
+        // 為了演示 Toast 效果 (請保留原本的 entryAgent，這裡僅供參考如何呼叫)
+        /*
+        const toastTrigger = document.getElementById('liveToastBtn')
+        const toastLiveExample = document.getElementById('toastFail')
+        if (toastTrigger) {
+            toastTrigger.addEventListener('click', () => {
+                const toast = new bootstrap.Toast(toastLiveExample)
+                // toast.show() 
+            })
+        }
+        */
+    </script>
 </body>
+</html>

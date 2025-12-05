@@ -42,7 +42,31 @@
             background-color: #1a252f;
             border-bottom: 1px solid #34495e;
         }
+        .sidebar-container {
+            overflow-y: auto; /* 確保有開啟滾動功能 */
+            
+            /* Firefox 專用設定 */
+            scrollbar-width: thin; /* 變細 */
+            scrollbar-color: rgba(255, 255, 255, 0.2) transparent; /* 滑塊顏色 軌道顏色 */
+        }
+        .sidebar-container::-webkit-scrollbar {
+            width: 6px; /* 建議設為 6px - 8px 看起來較精緻 */
+        }
 
+        .sidebar-container::-webkit-scrollbar-track {
+            background: transparent; /* 設為透明，讓它直接透出側邊欄的深色背景 */
+            /* 如果想要有顏色，可以設為跟側邊欄一樣的深色，例如: background: #1a202c; */
+        }
+
+        .sidebar-container::-webkit-scrollbar-thumb {
+            background-color: rgba(255, 255, 255, 0.2); /* 半透明白色，呈現深灰色效果 */
+            border-radius: 10px; /* 圓角設計 */
+            border: 2px solid transparent; /* 如果想要滑塊跟邊緣有點距離可以加這行 */
+            background-clip: content-box;
+        }
+        .sidebar-container::-webkit-scrollbar-thumb:hover {
+            background-color: rgba(255, 255, 255, 0.4); /* 變亮一點，提供互動回饋 */
+        }
         .history-list {
             flex-grow: 1;
             overflow-y: auto;
@@ -341,7 +365,7 @@
                     <i class="bi bi-pencil-square"></i>
                 </button>
             </div>
-            <div class="history-list" id="historyList">
+            <div class="history-list sidebar-container" id="historyList">
                 <div class="text-center text-secondary mt-3">載入中...</div>
             </div>
             <div class="p-3 border-top border-secondary">
@@ -417,14 +441,7 @@
             }
 
             const seenTopics = new Set();
-            
-            // 複製一份並「反轉」，讓最新的主題顯示在列表最上面
-            // 注意：historyData 原始順序應該是依照時間舊->新 (Excel Row 2 -> Row N)
-            const reversedHistory = [...historyData].reverse();
-
-            reversedHistory.forEach(item => {
-                // ✅ 關鍵修改：我們現在只認 "topic" 欄位
-                // 如果舊資料沒有 topic，您可以決定要忽略還是顯示 "未命名主題"
+            historyData.forEach(item => {
                 const topicName = item.topic; 
 
                 if (topicName && !seenTopics.has(topicName)) {
@@ -439,8 +456,6 @@
                     if (item.category === 'question') icon = '<i class="bi bi-pencil-square"></i> ';
                     
                     btn.innerHTML = `${icon} <span>${topicName}</span>`;
-                    
-                    // ✅ 關鍵修改：點擊時，傳入「Topic 名稱」而不是 User 輸入
                     btn.onclick = (e) => loadTopicContext(topicName, e);
                     
                     listContainer.appendChild(btn);
@@ -461,7 +476,6 @@
             chatBox.innerHTML = '<div class="text-center p-3 text-muted">讀取對話中...</div>';
 
             updateServerTopic(topicName);  // 更新目前主要的對話主題
-
             fetchHistoryAndRender(topicName); // 抓取該主題的歷史紀錄
         }
 
@@ -474,9 +488,7 @@
             // 1. 立刻顯示 User 訊息
             appendMessage('user', prompt);
             input.value = '';
-            
-            // 2. 顯示「正在輸入...」動畫
-            showTypingIndicator(); 
+            showTypingIndicator();
 
             // 3. 發送到後端
             fetch(`/ask_multiagent_rag?studentId=${studentId}`, {
@@ -489,29 +501,79 @@
                 // 4. 收到回應後，立刻移除動畫
                 removeTypingIndicator();
 
-                // 5. 顯示 Agent 1 (教材/回答)
+                if (data.topic) {
+                    const listContainer = document.getElementById('historyList');
+                    
+                    // 檢查是否已存在該主題
+                    const exists = Array.from(listContainer.querySelectorAll('.history-item span'))
+                                        .some(span => span.textContent === data.topic);
+
+                    if (!exists) {
+                        // 如果是第一次出現，把「尚無紀錄」清掉
+                        if (listContainer.innerText.includes('尚無紀錄') || listContainer.innerText.includes('載入中')) {
+                            listContainer.innerHTML = '';
+                        }
+
+                        // 建立新按鈕
+                        const btn = document.createElement('button');
+                        btn.className = 'history-item active'; 
+
+                        // 決定 Icon
+                        let icon = '<i class="bi bi-chat-dots"></i> '; 
+                        if (data.type === 'lesson') icon = '<i class="bi bi-book"></i> ';
+                        if (data.type === 'quiz') icon = '<i class="bi bi-pencil-square"></i> ';
+
+                        btn.innerHTML = `${icon} <span>${data.topic}</span>`;
+                        btn.onclick = (e) => loadTopicContext(data.topic, e);
+
+                        // 插入到最上方
+                        listContainer.prepend(btn);
+                        
+                        // 移除其他按鈕的 active 狀態
+                        Array.from(listContainer.children).forEach(child => {
+                            if (child !== btn) child.classList.remove('active');
+                        });
+                    }
+                }
+
+                // 情境 A：閒聊 (Chat)
+                if (data.type === 'chat') {
+                    appendMessage('bot', data.assistant_answer);
+                    return; 
+                }
+
+                // 情境 B：主回應 (教材 Lesson 或 解析 Answer)
                 if (data.assistant_answer) {
-                    // 判斷一下是「教材」還是「解題」
-                    // 簡單判斷：如果有 practice_questions 通常是教材模式，否則可能是解題
-                    const prefix = data.practice_questions ? "📚 <strong>教材筆記：</strong>\n" : "💡 <strong>回答解析：</strong>\n";
+                    let prefix = "";
+                    
+                    // 根據 type 決定標題 Icon
+                    if (data.type === 'lesson') {
+                        prefix = "📚 <strong>教材筆記：</strong>\n";
+                    } else if (data.type === 'answer') {
+                        prefix = "💡 <strong>回答解析：</strong>\n";
+                    } else {
+                        // Fallback (相容舊版邏輯)：如果有題目通常是教材，否則當作解析
+                        prefix = data.practice_questions ? "📚 <strong>教材筆記：</strong>\n" : "💡 <strong>回答解析：</strong>\n";
+                    }
+                    
                     appendMessage('bot', `${prefix}${data.assistant_answer}`);
                 }
-                
-                // 6. 顯示 Agent 2 (題目) - 稍微延遲一點點出現，製造層次感
+
+                // 情境 C：練習題 (Quiz)
+                // Router 可能單獨回傳題目，或者跟著教材一起回傳
                 if (data.practice_questions) {
+                    const delay = data.assistant_answer ? 600 : 0;
+
                     setTimeout(() => {
                         appendMessage('bot', `✍️ <strong>練習題目：</strong>\n${data.practice_questions}`);
-                    }, 600);
+                    }, delay);
                 }
-                
-                // 7. 若有回傳標題，更新側邊欄 (背景執行)
-                fetchHistorySilent();
+
             })
             .catch(err => {
-                // 發生錯誤也要移除動畫，不然它會一直跳
                 removeTypingIndicator();
-                appendMessage('bot', '發生錯誤，請稍後再試。');
-                console.error(err);
+                appendMessage('bot', '⚠️ 系統發生錯誤，請稍後再試。');
+                console.error("Error:", err);
             });
         }
         
@@ -639,19 +701,6 @@
             
             // 捲動到底部
             chatBox.scrollTop = chatBox.scrollHeight;
-        }
-        // 背景更新歷史 (不顯示 loading，不重繪 chatbox)
-        function fetchHistorySilent() {
-             fetch('/fetchHistoryData', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ sheetName: 'student_data', action: 'fetch', data: studentId })
-            })
-            .then(res => res.json())
-            .then(data => {
-                fullHistory = data.raw_history || [];
-                renderSidebar(fullHistory); // 只重繪側邊欄
-            });
         }
 
         // 5. 輔助功能：顯示訊息

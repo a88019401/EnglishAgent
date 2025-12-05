@@ -4,9 +4,10 @@ from flask_cors import CORS
 from openai import OpenAI
 from dotenv import load_dotenv
 from prompt import (
-    format_agent1_prompt,
-    format_agent2_prompt,
-    format_answer_explanation_prompt
+    format_lesson_prompt,
+    format_quiz_prompt,
+    format_answer_explanation_prompt,
+    format_router_prompt
 )
 from rag_utils import (
     search_manual_chunks,
@@ -162,23 +163,26 @@ def generate_chat_title(user_text):
 def new_conversation():
     try:
         session.pop('last_practice_questions', None)
-        session.pop('last_topic', None)
-        session.pop('current_mode', None)
         session.pop('current_topic', None) # ✅ 清除 Topic
         
         return jsonify({"status": "success", "message": "對話狀態已重置"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     
-
 """
-回答教材內容的說明（Agent1）
-
-提供練習題（Agent2）
-
-若學生問的是答案或解釋，則依照歷史資料進行答題解析（Answer模式）
-
-category: 1. 教材  2. 練習題   3. 回答解析
+    記錄過去對話的歷史資料
+"""   
+def format_chat_history(history_list):
+    if not history_list:
+        return ""
+    
+    formatted_str = "\n【近期對話紀錄 (越下面越新)】：\n"
+    for item in history_list:
+        formatted_str += f"User: {item['user']}\nAssistant: {item['agent']}\n---\n"
+    return formatted_str
+"""
+    目前有個母agent負責指派其他子agent 來確定要做甚麼事情
+    母agent會根據user的需求產生intent 並根據intent來判斷目前要由哪個agnet進行處理
 """
 @app.route("/ask_multiagent_rag", methods=["POST"])
 def ask_multiagent_rag():
@@ -189,37 +193,69 @@ def ask_multiagent_rag():
     if not user_prompt:
         return jsonify({"error": "請輸入問題"}), 400
 
-    print(f"[User] {user_prompt}")
-
-    # --- ✅ 新增：處理 Topic (主題) 邏輯 ---
-    # 1. 嘗試從 Session 拿當前主題
+    # 取得 Session 狀態
     current_topic = session.get("current_topic")
-    
-    # 2. 如果沒有主題 (新對話) 且不是在回答問題模式，就生成新標題
-    #    或是簡單判斷：只要 Session 沒 Topic 就生成
+    last_questions_exist = bool(session.get("last_practice_questions"))
+
+    recent_history = session.get("recent_history", [])
+
+    # 確定目前是否有主題
     if not current_topic:
         current_topic = generate_chat_title(user_prompt)
         session["current_topic"] = current_topic
-        print(f"[New Topic] {current_topic}")
-    # -------------------------------------
+        print(f"🆕 [New Topic Created & Locked]: {current_topic}")
+    else:
+        print(f"🔒 [Using Existing Topic]: {current_topic}")
 
-    # RAG 處理
-    manual_context = search_manual_chunks(user_prompt)
-    question_context = search_question_bank(user_prompt)
+    chat_history_str = format_chat_history(recent_history)
 
-    if not manual_context: manual_context = "⚠️ 找不到教材資料"
-    if not question_context: question_context = "⚠️ 找不到題庫資料"
+    # 【Mother Agent】意圖識別
+    router_prompt = format_router_prompt(user_prompt, last_questions_exist, chat_history_str)
+    try:
+        router_response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            response_format={"type": "json_object"}, # 強制 JSON
+            messages=[{"role": "user", "content": router_prompt}]
+        )
+        router_result = json.loads(router_response.choices[0].message.content)
 
-    last_questions = session.get("last_practice_questions", "（目前尚無歷史題目）")
+        reasoning = router_result.get("reasoning", "")
+        intent = router_result.get("intent", "CHAT")
+        search_term = router_result.get("search_term", "") # 拿到優化後的關鍵字
 
-    # ✅ 模式 1: 解題解析 (Answer Mode)
-    if ("答案" in user_prompt or is_answer_pattern(user_prompt)) and session.get("last_practice_questions"):
+        print(f"[Router Thought]: {reasoning}") 
+        print(f"[Router Intent]: {intent}, [Search Term]: {search_term}")
+    except:
+        intent = "CHAT" # Fallback
+
+    # 3. 準備 RAG 資料 (如果是 CHAT 就不需要浪費搜尋資源)
+    manual_context = ""
+    question_context = ""
+    if intent in ["LESSON", "QUIZ", "ANSWER"]:
+
+        final_query = search_term if search_term else user_prompt
+        print(f"[Searching]: {final_query}")
+
+        manual_context = search_manual_chunks(final_query)
+        question_context = search_question_bank(final_query)
+
+        # 檢查手冊是否有查到足夠的資訊
+        if manual_context and len(manual_context) > 10: 
+            has_valid_material = True
+        else:
+            print(f"[Warning] No material found for: {final_query}")
+        
+    
+
+    # --- 分流處理 ---
+
+    # 情況 A: 解題 (ANSWER)
+    if intent == "ANSWER" and last_questions_exist:
         prompt = format_answer_explanation_prompt(
-            session.get("last_topic", ""),
             manual_context,
-            question_context,
             session.get("last_practice_questions", ""),
-            user_prompt
+            user_prompt,
+            chat_history_str
         )
 
         agent_answer_response = client.chat.completions.create(
@@ -230,94 +266,150 @@ def ask_multiagent_rag():
             ]
         )
         agent_answer = agent_answer_response.choices[0].message.content
-        session["current_mode"] = None
 
-        # ✅ 修正：Payload 加入 topic
-        payload = {
-            "sheetName": "student_data",
-            "action": "add", 
-            "data": [{
-                "student": id_value,
-                "category": "answer",
-                "topic": current_topic,  # <--- 加入這行
-                "user": user_prompt, 
-                "agent": agent_answer
-            }]
-        }
-        data2sheet.doPost(payload)
+        save_to_sheet(id_value, intent.lower(), current_topic, user_prompt, agent_answer)
+        recent_history.append({"user": user_prompt, "agent": agent_answer})
+
+        if len(recent_history) > 3:
+            recent_history.pop(0) # 移除最舊的
+        session["recent_history"] = recent_history
 
         return jsonify({
+            "type": "answer",
             "question": user_prompt,
             "assistant_answer": agent_answer,
             "practice_questions": "(上一題練習題，未重複提供)",
             "topic": current_topic # 回傳給前端更新 UI
         })
 
-    # ... (省略中間的「回顧」邏輯，這部分如果是純讀取 fetch，不需要寫入 topic) ...
+    # 情況 B: 純教學 (LESSON)
+    elif intent == "LESSON" and not has_valid_material:
+        # 這裡不呼叫 Agent 1，而是直接呼叫一個道歉/引導 Agent，或者直接回傳
+        fallback_msg = f"抱歉，我目前的教材資料庫中好像還沒有關於「{search_term if search_term else user_prompt}」的詳細內容。我們可以先從其他基礎主題開始嗎？"
+        
+        # 寫入歷史並回傳
+        recent_history.append({"user": user_prompt, "agent": fallback_msg})
+        save_to_sheet(id_value, "chat", current_topic, user_prompt, fallback_msg)
 
-    # ✅ 模式 2: 正常出題 (Lesson & Question Mode)
-    
-    ## (1) Agent 1: 教材
-    agent1_prompt = format_agent1_prompt(user_prompt, manual_context, last_questions)
-    agent1_response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
+        if len(recent_history) > 3:
+            recent_history.pop(0) # 移除最舊的
+        session["recent_history"] = recent_history
+        
+        return jsonify({
+            "type": "chat",
+            "assistant_answer": fallback_msg,
+            "topic": current_topic
+        })
+    elif intent == "LESSON":
+        agent1_prompt = format_lesson_prompt(
+            user_prompt, 
+            manual_context,
+            chat_history_str, 
+            session.get("last_practice_questions", ""),
+            search_term
+        )
+        agent1_res = client.chat.completions.create(
+            model="gpt-4o",
+             messages=[
             {"role": "system", "content": "你是英文助教，要協助台灣國中的英文老師，僅嚴格的【教材內容】內的內容，提供教師要求的文法筆記或上課內容講義。絕對不能脫離【教材內容】的內容需簡潔、符合國中程度"},
             {"role": "user", "content": agent1_prompt}
         ]
-    )
-    agent1_answer = agent1_response.choices[0].message.content
+        )
+        lesson_content = agent1_res.choices[0].message.content
+        save_to_sheet(id_value, intent.lower(), current_topic, user_prompt, lesson_content)
 
-    # ✅ 修正：Payload 加入 topic
-    payload = {
-        "sheetName": "student_data",
-        "action": "add", 
-        "data": [{
-            "student": id_value,
-            "category": "lesson",
-            "topic": current_topic, 
-            "user": user_prompt, 
-            "agent": agent1_answer
-        }]
-    }
-    data2sheet.doPost(payload)
+        recent_history.append({"user": user_prompt, "agent": lesson_content})
 
-    ## (2) Agent 2: 出題
-    agent2_prompt = format_agent2_prompt(user_prompt, question_context, manual_context)
-    agent2_response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {"role": "system", "content": "你是英文測驗題目設計老師，要協助台灣國中的英文老師。根據嚴格的依照【題庫內容】篩選5題英文單選題（a/b/c/d），不得超出主題。只提供題目，不提供答案。"},
-            {"role": "user", "content": agent2_prompt}
-        ]
-    )
-    agent2_answer = agent2_response.choices[0].message.content
+        if len(recent_history) > 3:
+            recent_history.pop(0) # 移除最舊的
+        session["recent_history"] = recent_history
 
-    # ✅ 修正：Payload 加入 topic
-    payload = {
-        "sheetName": "student_data",
-        "action": "add", 
-        "data": [{
-            "student": id_value,
-            "category": "question",
-            "topic": current_topic, # <--- 加入這行
-            "user": user_prompt, 
-            "agent": agent2_answer
-        }]
-    }
-    data2sheet.doPost(payload)
+        # ★ 這裡可以做一個聰明的設計：
+        # 如果使用者問的是很明確的主題，通常教完馬上出題效果最好。
+        # 你可以讓 Mother Agent 決定是否要 "LESSON_AND_QUIZ"，或者是這裡做一個簡易判斷。
+        # 假設我們先回傳教學內容，並在 UI 上給一個「產生練習題」的按鈕引導使用者。
+        
+        return jsonify({
+            "type": "lesson",
+            "assistant_answer": lesson_content,
+            "topic": current_topic
+        })
 
-    session["last_practice_questions"] = agent2_answer
-    session["last_topic"] = user_prompt
-    session["current_mode"] = "waiting_for_answer"
+    # 情況 C: 出題 (QUIZ) - 包含資料一致性處理
+    elif intent == "QUIZ":
 
-    return jsonify({
-        "question": user_prompt,
-        "assistant_answer": agent1_answer,
-        "practice_questions": agent2_answer,
-        "topic": current_topic # 回傳給前端
-    })
+        agent2_prompt = format_quiz_prompt(
+            user_prompt, 
+            question_context, 
+            manual_context,
+            chat_history_str
+        )
+        agent2_res = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "你是英文測驗題目設計老師，要協助台灣國中的英文老師。根據嚴格的依照【題庫內容】篩選5題英文單選題（a/b/c/d），不得超出主題。只提供題目，不提供答案。"},
+                {"role": "user", "content": agent2_prompt}
+            ]
+        )
+        quiz_content = agent2_res.choices[0].message.content
 
+        recent_history.append({"user": user_prompt, "agent": quiz_content})
+
+        if len(recent_history) > 3:
+            recent_history.pop(0) # 移除最舊的
+        session["recent_history"] = recent_history
+        
+        session["last_practice_questions"] = quiz_content
+        save_to_sheet(id_value, intent.lower(), current_topic, user_prompt, quiz_content)
+
+        return jsonify({
+            "type": "quiz",
+            "practice_questions": quiz_content,
+            "topic": current_topic
+        })
+
+    # 情況 D: 閒聊 (CHAT)
+    else:
+        chat_res = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "你是一個親切的英文助教。請用簡短繁體中文回應使用者的閒聊，並引導他們開始學習英文。"},
+                {"role": "user", "content": user_prompt}
+            ]
+        )
+
+        chat_content = chat_res.choices[0].message.content
+        save_to_sheet(id_value, intent.lower(), current_topic, user_prompt, chat_content)
+        return jsonify({
+            "type": "chat",
+            "assistant_answer": chat_content,
+            "topic": current_topic
+        })
+    
+"""
+    將資料儲存至資料庫
+"""   
+def save_to_sheet(student_id, category, topic, user_msg, agent_msg, sheet_name="student_data"):
+    """
+    通用儲存函式
+    sheet_name: 預設存入 student_data，但可以指定存入 chat_logs
+    """
+    try:
+        payload = {
+            "sheetName": sheet_name, 
+            "action": "add", 
+            "data": [{
+                "student": student_id,
+                "category": category,
+                "topic": topic, 
+                "user": user_msg, 
+                "agent": agent_msg
+            }]
+        }
+        # 這裡建議用非同步處理 (Threading) 以免卡住回應時間，但簡單起見先直接呼叫
+        data2sheet.doPost(payload)
+    except Exception as e:
+        print(f"❌ 儲存失敗 ({sheet_name}): {e}")    
 """
 用設置當前的主題
 
@@ -335,8 +427,6 @@ def set_current_topic():
             # 2. 切換主題時，務必清除「上一題」的暫存狀態
             # 避免使用者在 A 主題答題，卻被判定為回答 B 主題的題目
             session.pop('last_practice_questions', None)
-            session.pop('last_topic', None)
-            session["current_mode"] = None 
             
             print(f"✅ 主題已切換至: {topic}")
             return jsonify({"status": "success", "message": f"Topic set to {topic}"})
