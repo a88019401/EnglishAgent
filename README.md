@@ -1,6 +1,6 @@
 # EnglishAgent：Master-Sub Agent + Chroma RAG 英語學習助教系統
 
-本專案建構了一套智慧英語學習平台，採用 **Master-Sub Agent（主從智能體）** 架構結合 **Chain of Thought (CoT)** 思維鏈技術。系統透過 Master Agent 進行意圖識別與任務分派，並結合 **Chroma 向量資料庫（RAG 技術）** 檢索國中教材，提供精準的教學、出題與翻譯服務。
+本專案建構了一套智慧英語學習平台，採用 **Master-Sub Agent（主從智能體）** 架構結合 **Chain of Thought (CoT)** 思維鏈技術。系統透過 Master Agent 進行意圖識別與任務分派，並結合 **Chroma 向量資料庫（RAG 技術）** 檢索國中教材，提供精準的教學、出題與解析服務。
 
 ## 目錄 Table of Contents
 
