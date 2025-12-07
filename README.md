@@ -1,158 +1,105 @@
-# EnglishAgent：Multi-Agent + Chroma RAG 英語學習助教系統
+# EnglishAgent：Master-Sub Agent + Chroma RAG 英語學習助教系統
 
-本專案旨在建構一套智慧英語學習平台，透過 Multi-Agent 架構與 Chroma 向量資料庫（Vector DB）結合 Retrieval-Augmented Generation（RAG）技術，協助教師與學生進行更精準、即時、個別化的教學與練習題生成。
+本專案建構了一套智慧英語學習平台，採用 **Master-Sub Agent（主從智能體）** 架構結合 **Chain of Thought (CoT)** 思維鏈技術。系統透過 Master Agent 進行意圖識別與任務分派，並結合 **Chroma 向量資料庫（RAG 技術）** 檢索國中教材，提供精準的教學、出題與翻譯服務。
 
 ## 目錄 Table of Contents
 
-- [專案簡介](#englishagentmulti-agent--chroma-rag-英語學習助教系統)
-- [專案目標與核心功能](#專案目標與核心功能)
+- [專案簡介](#englishagentmaster-sub-agent--chroma-rag-英語學習助教系統)
+- [核心功能與特色](#核心功能與特色)
+- [系統架構與 Master Agent 機制](#系統架構與-master-agent-機制)
 - [文獻探討](#文獻探討)
-- [系統流程圖](#系統流程圖)
-- [資料儲存與使用者紀錄機制](#資料儲存與使用者紀錄機制)
+- [資料儲存機制 (Google Sheets)](#資料儲存機制-google-sheets)
 - [技術堆疊](#技術堆疊)
-- [實際操作流程](#實際操作流程)
-- [解決的問題](#解決的問題)
-- [擴充應用潛力](#擴充應用潛力)
+- [未來展望 (Roadmap)](#未來展望-roadmap)
 - [快速啟動方式](#快速啟動方式)
 - [出處](#出處)
 
 ---
 
-## 專案目標與核心功能
+## 核心功能與特色
 
-### 輸入要素
-- 教師提供關鍵詞（支援多詞性與彈性主題關鍵字）
-- 系統可自動進行擴展與語意聚類
+### 🧠 Master Agent 智慧分派
+引入 **母智能體 (Master Agent)** 作為中樞大腦，負責：
+1.  **意圖識別**：分析使用者輸入，判斷需求屬於「教學」、「出題」還是「翻譯」。
+2.  **CoT 思維鏈**：在分派任務前進行推理解析，確保任務傳遞給正確的子 Agent。
+3.  **任務調度**：動態喚醒對應的 Sub-Agent (Teaching / Question / Answer)。
 
-### 核心功能
-1. **教學重點生成**：根據關鍵動詞，自動擴展出教學主題、核心概念與學習目標。
-2. **題目產出**：自動生成符合教學目標的選擇題（包含題幹、選項與解析）。
+### 🗣️ CoT 多輪對話記憶
+- **上下文感知**：系統具備 **3 輪對話紀錄 (Context Window)** 的短期記憶能力。
+- **連續性互動**：使用者可以進行追問（例如：先問單字定義，接著追問例句，再要求出題），Agent 能理解上下文關聯，不會將每句話視為獨立事件。
 
-### 技術架構概覽
-- **輸入處理流程**：關鍵詞解析 → 同義詞擴展 → 語意聚類
-- **題目生成流程**：根據學習進度與課綱難易度，生成合適的選擇題
-
-###  預期效益
-- 提升教學效率與題目品質
-- 減少教師備課負擔
-- 提供高彈性與擴充性支援
-
----
-## 文獻探討
-### AI 在英語教育中的應用潛力
-- 教師端方面，AI 可協助備課與回饋回應的自動化，大幅降低教學工作負擔。
-- 學習者端方面，AI 增強了學習動機、參與度與學習表現，尤其在英文寫作、溝通與閱讀理解方面有顯著幫助。
-- 現有多數工具仍缺乏「語境適應性」與「學習者個別差異調整」的能力，顯示出對個人化學習設計的迫切需求。
-
-Koç, F. Ş., & Savaş, P. (2024). The use of artificially intelligent chatbots in English language learning: A systematic meta-synthesis study of articles published between 2010 and 2024. ReCALL, 1–18. https://doi.org/10.1017/S0958344024000168
-
-
-### AI Agents 在教育領域的發展潛力
-- 基於大型語言模型（LLM）的 AI Agent 可執行知識追蹤、適性內容推薦與個別化教學任務。
-- 結合「記憶模組」與「規劃模組」的 Agent 系統能即時追蹤學習進展，並動態調整教學策略與任務排序。
-- 然而，目前仍存在「幻覺現象（hallucination）」與「事實錯誤（factual inaccuracy）」的風險，阻礙其在實際教育現場的全面應用。
-
-Chu, Z., Wang, S., Xie, J., Zhu, T., Yan, Y., Ye, J., ... & Wen, Q. (2025). LLM agents for education: Advances and applications. arXiv preprint arXiv:2503.11733.
-
-
-### 自動出題技術的困境與挑戰
-- 現行多數自動化出題系統仍集中於客觀題型，缺乏與課程進度或學習者能力對應的靈活出題機制。
-- 語意錯誤與幻覺問題降低了教育使用時的可靠性與信任度。
-- 多數系統無法有效根據個別學生的知識程度、認知風格或學習進度進行調整，限制了其個人化教學的潛力。
-
-Jadhav, P., Deore, S., Aute, S., Gaikwad, R., Barphe, S., & Meshram, E. (2024). Questomatic: Automated question formulation system. In 2024 International Conference on Sustainable Expert Systems (ICSES) (pp. 577–578). IEEE. https://doi.org/10.1109/ICSES63445.2024.10763124
+### 📚 RAG 國中教材檢索
+- **專屬知識庫**：透過 ChromaDB 檢索國中英語教材。
+- **課綱對應**：生成的教學內容與題目嚴格貼合國中課綱範圍，避免產生超綱或不適用的內容。
 
 ---
 
-## 系統流程圖
+## 系統架構與 Master Agent 機制
 
-![agentFlow](assets/flow.png)
 
-### 系統說明：
-
-1. 使用者登入系統，驗證帳號密碼（由 Excel 管理使用者帳密與歷史紀錄）。
-2. 登入成功後，系統依據是否有歷史紀錄提供不同啟動訊息（協助新用戶快速上手）。
-3. 使用者可輸入與英語相關的問題、題目需求或解析需求，系統會透過適當的 Agent 處理任務並從 Chroma DB 回傳答案與題目。
-4. 每次任務完成後，系統會將使用紀錄存入資料庫，作為後續使用者歷程與記憶依據。
+### 運作流程：
+1.  **使用者輸入**：學生提出問題（例如：「請幫我解釋現在完成式並出題」）。
+2.  **Master Agent (母智能體) 分析**：
+    -   讀取最近 3 輪對話紀錄 (Memory)。
+    -   執行 CoT 推理：「使用者想學習文法並練習，應優先調用教學 Agent，隨後可引導至出題 Agent。」
+    -   決定啟動哪個 Sub-Agent。
+3.  **Sub-Agent (子智能體) 執行**：
+    -   **Teaching Agent**：檢索 RAG 教材，生成文法解說。
+    -   **Question Agent**：根據該文法點生成選擇題。
+    -   **Answer Agent**：處理過去問題的解答。
+4.  **Response**：整合結果回傳給使用者，並更新對話記憶。
 
 ---
 
-## 資料儲存與使用者紀錄機制
+## 資料儲存機制 (Google Sheets)
 
-本系統採用 Google Sheets 結合 Google App Script 實作資料儲存功能，以便記錄使用者與 Agent 對話歷程及學習進度：
+系統將所有互動數據即時寫入 **Google Sheets**，欄位設計經過優化以符合教學追蹤需求。
 
-- 使用者登入後，系統會檢查帳號密碼是否存在於 Excel 資料表中。
-- 每次使用者與 Agent 對話完成後，系統會將輸入agent類型、使用者提問內容、agent回覆，**透過 App Script 寫入對應的 Google Sheet**。
-- 此方式具有：
-  - 資料管理直觀：教師或管理者可直接檢視使用者操作紀錄
-  - 可追蹤性強：適合進行學習歷程分析與後續教學診斷
-  - 易於整合：未來可接入更多資料儲存與分析平台
+### 資料表欄位結構 (Schema)：
+| 欄位名稱 | 說明 | 範例 |
+| :--- | :--- | :--- |
+| **id** | 流水號 | `1` |
+| **student** | 學生姓名或代號 | `Student_A` |
+| **category** | 任務分類 (由 Master Agent 判斷) | `Grammar_Teaching` |
+| **Topic** | 學習主題/關鍵字 | `Present Perfect Tense` |
+| **User Input** | 使用者完整的提問內容 | `什麼是現在完成式？請給我例句` |
+| **Agent Output** | 系統生成的完整回應 | `現在完成式表示過去發生但影響至今...` |
+| **Timestamp** | 紀錄時間 | `2025-12-07 10:30:00` |
 
-資料紀錄範例欄位：
-| AutoIndex | 使用者ID | category | userProblem | agentReply | 
-|----------|------|------|-----------------------|-----------|
-| 1 | test |lesson | 現在簡單式 | 現在簡單式 (Simple Present Tense) 基礎筆記.... | 
-| 2 | test |question | 現在簡單式 | 題目1：What time does she _____ to school every day?... | 
 ---
 
 ## 技術堆疊
 
-| 類別           | 工具 / 技術                           |
-|----------------|----------------------------------------|
-| LLM            | OpenAI GPT-4o                          |
-| 向量資料庫     | Chroma Persistent Vector Store         |
-| 向量嵌入模型   | `text-embedding-3-small` (OpenAI)      |
-| 後端框架       | Flask                                  |
-| 前端技術       | 原生 HTML + JavaScript                |
-| Session 記憶   | Flask Session                          |
-| 教材來源       | 康軒、翰林、南一 國中教材 PDF + 題庫 JSON |
+| 類別 | 工具 / 技術 | 說明 |
+| :--- | :--- | :--- |
+| **Backend** | **Python Flask** | 處理路由、Session 與 Agent 調度邏輯 |
+| **Agent Core** | **Master-Sub Architecture** | 自研主從式 Agent 協作框架 |
+| **Memory** | **Sliding Window Buffer** | 實作 3 輪對話的 Context 記憶 |
+| **LLM** | **OpenAI GPT-4o** | 支援 CoT 推理與內容生成 |
+| **Vector DB** | **ChromaDB** | 儲存國中教材向量數據 (RAG) |
+| **Database** | **Google Sheets API** | 學習歷程記錄 (Log) |
+| **Data Source** | PDF / JSON | 國中英語教材  |
 
 ---
 
-## 實際操作流程
+## 文獻探討
 
-1. 登入介面輸入帳密，首次使用者可註冊帳號  
-   ![login_page](assets/login_page.png)
+### AI 在英語教育中的應用潛力
+- 教師端方面，AI 可協助備課與回饋回應的自動化，大幅降低教學工作負擔。
+- 學習者端方面，AI 增強了學習動機、參與度與學習表現。
 
-2. 登入後依使用者是否有歷史紀錄，呈現對應操作建議與說明  
-   ![With History](assets/englishAgentWithHistory.png)  
-   ![Without History](assets/englishAgentWithoutHistory.png)
+> *Koç, F. Ş., & Savaş, P. (2024). The use of artificially intelligent chatbots in English language learning...*
 
----
+### AI Agents 在教育領域的發展潛力
+- 結合「記憶模組」與「規劃模組」的 Agent 系統能即時追蹤學習進展。
+- 本專案採用的 **Master-Slave 多智能體架構** 能有效解決單一模型在處理複雜教學任務時的錯亂問題。
 
-## 解決的問題
-
-- 傳統教案與題庫需手動整理撰寫，流程繁瑣
-- 難以依據學生當下學習狀況即時調整題目
-- 缺乏彈性與自動化機制，無法因應多元需求
+> *Chu, Z., et al. (2025). LLM agents for education: Advances and applications.*
 
 ---
 
-## 擴充應用潛力
+## 未來展望 (Roadmap)
 
-- 可應用於各學科、不同年級
-- 搭配 AI 模型持續優化內容品質與難易度控制
-- 可擴充為支援作文評分、口說評量等多種 Agent 系統
-- 未來可整合 SPA 介面、學習圖表與徽章系統（Badge System）
+   -   新增口說評測 Agent (Speech-to-Text)。
+   -   導入學習歷程分析儀表板 (Dashboard)。
 
----
-
-## 快速啟動方式
-
-### API Key 設定
-1. 前往 [OpenAI](https://platform.openai.com/account/api-keys) 申請 API 金鑰
-2. 將 `.env.template` 複製並重新命名為 `.env`
-3. 在 `.env` 中填入您的 `OPENAI_API_KEY`
-
-### 啟動流程
-```bash
-git clone https://github.com/sharsnow/EnglishAgent.git
-cd EnglishAgent
-pip install -r requirements.txt
-python run.py
-```
-
----
-
-## 出處
-此內容原作者來自於[Github](https://github.com/a88019401/ai_agents_homework_from-my-teammates)
