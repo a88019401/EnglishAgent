@@ -68,7 +68,25 @@ def fetchHistoryData():
     action = payload.get("action")
 
     if action in ["fetch_topics", "fetch_detail"]:
-        return jsonify(gas_data)
+        if action == "fetch_detail":
+            current_topic = session.get("current_topic")
+            if isinstance(gas_data, list):
+                # 1. 取出最後 3 筆 (或是你設定的對話輪數)
+                # Python 的 [-3:] 會自動處理長度不足 3 的情況，非常安全
+                recent_logs = gas_data[-3:] 
+                
+                # 2. 更新 Session
+                session["recent_history"] = recent_logs
+            
+            # 3. 確保當前主題也被鎖定 (雙重保險，防止 /set_current_topic 沒跑完)
+            if current_topic:
+                session["current_topic"] = current_topic
+            
+            print(f"🔄 [Context Reloaded]: Topic '{current_topic}' loaded with {len(recent_logs)} turns.")
+        
+            return jsonify(gas_data)
+        else:
+            return jsonify(gas_data)
     
     history_data = gas_data
     
@@ -163,7 +181,8 @@ def generate_chat_title(user_text):
 def new_conversation():
     try:
         session.pop('last_practice_questions', None)
-        session.pop('current_topic', None) # ✅ 清除 Topic
+        session.pop('current_topic', None) # 清除 Topic
+        session.pop('recent_history', None) # 清除歷史紀錄
         
         return jsonify({"status": "success", "message": "對話狀態已重置"})
     except Exception as e:
