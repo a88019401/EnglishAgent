@@ -25,7 +25,7 @@ import data2sheet
 app = Flask(__name__)
 app.secret_key = "aws_agent_secure_key"
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://admin:12345678@database-1.cpmu2i0isc0x.ap-southeast-2.rds.amazonaws.com:3306/database-1'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://admin:12345678@database-1.cpmu2i0isc0x.ap-southeast-2.rds.amazonaws.com:3306/englishagent'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 CORS(app)
@@ -60,20 +60,17 @@ with app.app_context():
 
 # --- AWS Bedrock 初始化 ---
 # 注意：請確保您的 EC2 區域與 Bedrock 區域一致 (例如 ap-southeast-2)
-# 且已經在 Bedrock Console 開通了 Claude 3 的存取權限
-bedrock_runtime = boto3.client(service_name='bedrock-runtime', region_name='ap-southeast-2')
+# 且已經在 Bedrock Console 開通了 Claude / Titan 的存取權限
+bedrock_runtime = boto3.client(service_name="bedrock-runtime", region_name="ap-southeast-2")
 
-def call_bedrock(system_prompt, user_content, model_type="sonnet"):
-    """
-    通用 AWS Bedrock 呼叫函數
-    model_type: "sonnet" (高品質) 或 "haiku" (快速低成本)
-    """
+def call_bedrock(system_prompt: str, user_content: str, model_type: str = "sonnet") -> str:
+    """通用 AWS Bedrock Claude 呼叫函數 (Text Generation)"""
     if model_type == "sonnet":
         model_id = "us.anthropic.claude-3-5-sonnet-20240620-v1:0"
     else:
         model_id = "anthropic.claude-3-haiku-20240307-v1:0"
 
-    body = json.dumps({
+    body = {
         "anthropic_version": "bedrock-2023-05-31",
         "max_tokens": 2048,
         "system": system_prompt,
@@ -81,12 +78,18 @@ def call_bedrock(system_prompt, user_content, model_type="sonnet"):
             {"role": "user", "content": user_content}
         ],
         "temperature": 0.5
-    })
+    }
 
     try:
-        response = bedrock_runtime.invoke_model(body=body, modelId=model_id)
-        response_body = json.loads(response.get('body').read())
-        return response_body['content'][0]['text']
+        response = bedrock_runtime.invoke_model(
+            modelId=model_id,
+            contentType="application/json",
+            accept="application/json",
+            body=json.dumps(body, ensure_ascii=False)
+        )
+        response_body = json.loads(response["body"].read())
+        parts = response_body.get("content", [])
+        return "".join(p.get("text", "") for p in parts if p.get("type") == "text").strip()
     except Exception as e:
         print(f"❌ Bedrock 呼叫失敗: {e}")
         return "抱歉，目前 AI 服務暫時無法回應，請稍後再試。"
@@ -103,17 +106,17 @@ def index():
 
 @app.route("/login", methods=["POST"])
 def login():
-    data = request.json
-    username = data.get("username")
-    password = data.get("password")
-    
-    # 查詢資料庫是否存在該用戶且密碼正確
-    user = User.query.filter_by(student=username, pwd=password).first()
-    
-    if user:
+    data = request.get_json(silent=True) or {}
+    username = data.get("username") or data.get("student")
+    password = data.get("pwd") or data.get("password")
+
+    if not username or not password:
+        return jsonify({"status": "fail", "message": "Missing username or password"}), 400
+
+    user = User.query.filter_by(student=username).first()
+    if user and user.pwd == password:
         return jsonify({"status": "success", "message": "Login successful"})
-    else:
-        return jsonify({"status": "fail", "message": "Invalid username or password"}), 401
+    return jsonify({"status": "fail", "message": "Invalid username or password"}), 401
 
 @app.route("/englishAgent")
 def englishAgent():
@@ -284,17 +287,27 @@ def ask_multiagent_rag():
         agent_answer = call_bedrock(system_msg, prompt, model_type="sonnet")
         resp_type = "answer"
 
-    # B: 教學
+        # B: 教學
     elif intent == "LESSON" and not has_valid_material:
-        system_msg = "你是英文助教，當教材資料不足時，請用簡單的方式告知學生，並引導他們提供更多資訊。"
-        prompt = f"目前我找不到關於「{user_prompt}」的相關教材內容。請用簡短的繁體中文回應，並引導我提供更多資訊或更換主題。"
+        # 仍維持 prompts.py 的「直球教學」風格：不客套、不推託；用明確問題把需求問清楚
+        system_msg = "你是台灣國中英文老師。回覆必須用 Markdown、繁體中文、直接講重點，不要客套話。"
+        prompt = (
+            f"教材內容目前不足以完整教「{search_term or user_prompt}」。\n"
+            "請用以下格式回覆：\n"
+            "### 你要學的範圍\n"
+            "- (用一句話說你缺的資訊)\n"
+            "### 我需要你補充\n"
+            "- 你要的是哪一種？(請給 3 個選項讓使用者選)\n"
+            "### 先給你一個最小可用的重點\n"
+            "- (給 3~5 點最核心的規則或例句骨架，但不要離題)\n"
+        )
         agent_answer = call_bedrock(system_msg, prompt, model_type="haiku")
         resp_type = "lesson"
     elif intent == "LESSON":
         if not has_valid_material:
             agent_answer = f"抱歉，我目前的教材資料庫中好像還沒有關於「{search_term or user_prompt}」的內容。我們可以先討論其他主題嗎？"
         else:
-            system_msg = "你是英文助教，嚴格根據提供之【教材內容】提供文法講義。內容需簡潔、符合國中程度。"
+            system_msg = "你是台灣國中英文老師。必須嚴格依照【教材參考】回答；用繁體中文 Markdown；禁止客套開場白。"
             prompt = format_lesson_prompt(user_prompt, manual_context, chat_history_str, session.get("last_practice_questions", ""), search_term)
             agent_answer = call_bedrock(system_msg, prompt, model_type="sonnet")
             resp_type = "lesson"
