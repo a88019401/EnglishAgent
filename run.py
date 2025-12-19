@@ -91,12 +91,29 @@ def fetchHistoryData():
 
     if action in ["fetch_topics", "fetch_detail"]:
         if action == "fetch_detail":
-            session["recent_history"] = gas_data[-3:] if isinstance(gas_data, list) else []
+            current_topic = session.get("current_topic")
+            if isinstance(gas_data, list):
+                # 1. 取出最後 3 筆 (或是你設定的對話輪數)
+                # Python 的 [-3:] 會自動處理長度不足 3 的情況，非常安全
+                recent_logs = gas_data[-3:] 
+                
+                # 2. 更新 Session
+                session["recent_history"] = recent_logs
+            
+            # 3. 確保當前主題也被鎖定 (雙重保險，防止 /set_current_topic 沒跑完)
+            if current_topic:
+                session["current_topic"] = current_topic
+            
+            print(f"🔄 [Context Reloaded]: Topic '{current_topic}' loaded with {len(recent_logs)} turns.")
+        
             return jsonify(gas_data)
-        return jsonify(gas_data)
+        else:
+            return jsonify(gas_data)
+    history_data = gas_data
     
+    print(json.dumps(history_data, ensure_ascii=False, indent=2))    
     # 情況 A: 沒有歷史紀錄 - 使用 Bedrock 生成歡迎詞
-    if gas_data == True or not gas_data:
+    if history_data == True or not history_data:
         system_msg = (
             "你是一個英文助理專注於提供英文的相關知識，user的content為你要服務對象的名稱，負責的任務為幫助老師進行出題、解題以及製作教材。"
                 "請你以一個第一次使用的狀態介紹說明並請老師輸入要進行的活動的關鍵字，如: 現在簡單式。"
@@ -127,12 +144,12 @@ def fetchHistoryData():
                         "3. 針對最新的學習內容（資料列後方）給予較高權重。"
                         "4. 結尾請給予老師一個簡短的後續教學建議。"
         )
-        user_msg = f"學生姓名：{student_id}\n歷史資料：\n{json.dumps(gas_data, ensure_ascii=False)}"
+        user_msg = f"學生姓名：{student_id}\n歷史資料：\n{json.dumps(history_data, ensure_ascii=False)}"
         agent_answer = call_bedrock(system_msg, user_msg, model_type="sonnet")
         
         return jsonify({
             "assistant_answer": agent_answer,
-            "raw_history": gas_data 
+            "raw_history": history_data 
         })
 
 def generate_chat_title(user_text):
@@ -163,13 +180,17 @@ def ask_multiagent_rag():
         return jsonify({"error": "請輸入問題"}), 400
 
     current_topic = session.get("current_topic")
+    last_questions_exist = bool(session.get("last_practice_questions"))
+
+    recent_history = session.get("recent_history", [])
     if not current_topic:
         current_topic = generate_chat_title(user_prompt)
         session["current_topic"] = current_topic
+        print(f"🆕 [New Topic Created & Locked]: {current_topic}")
+    else:
+        print(f"🔒 [Using Existing Topic]: {current_topic}")
 
-    recent_history = session.get("recent_history", [])
     chat_history_str = format_chat_history(recent_history)
-    last_questions_exist = bool(session.get("last_practice_questions"))
 
     # 【Mother Agent】意圖識別 - 強制 JSON
     router_prompt = format_router_prompt(user_prompt, last_questions_exist, chat_history_str)
@@ -180,8 +201,11 @@ def ask_multiagent_rag():
         # 清除可能存在的 Markdown 標籤
         router_raw = router_raw.replace("```json", "").replace("```", "").strip()
         router_result = json.loads(router_raw)
+        reasoning = router_result.get("reasoning", "")
         intent = router_result.get("intent", "CHAT")
         search_term = router_result.get("search_term", "")
+        print(f"[Router Thought]: {reasoning}") 
+        print(f"[Router Intent]: {intent}, [Search Term]: {search_term}")
     except:
         intent = "CHAT"
 
@@ -192,6 +216,8 @@ def ask_multiagent_rag():
     
     if intent in ["LESSON", "QUIZ", "ANSWER"]:
         final_query = search_term if search_term else user_prompt
+        print(f"[Searching]: {final_query}")
+
         manual_context = search_manual_chunks(final_query)
         question_context = search_question_bank(final_query)
         has_valid_material = bool(manual_context and len(manual_context) > 10)
@@ -208,6 +234,11 @@ def ask_multiagent_rag():
         resp_type = "answer"
 
     # B: 教學
+    elif intent == "LESSON" and not has_valid_material:
+        system_msg = "你是英文助教，當教材資料不足時，請用簡單的方式告知學生，並引導他們提供更多資訊。"
+        prompt = f"目前我找不到關於「{user_prompt}」的相關教材內容。請用簡短的繁體中文回應，並引導我提供更多資訊或更換主題。"
+        agent_answer = call_bedrock(system_msg, prompt, model_type="haiku")
+        resp_type = "lesson"
     elif intent == "LESSON":
         if not has_valid_material:
             agent_answer = f"抱歉，我目前的教材資料庫中好像還沒有關於「{search_term or user_prompt}」的內容。我們可以先討論其他主題嗎？"
@@ -251,6 +282,27 @@ def save_to_sheet(student_id, category, topic, user_msg, agent_msg, sheet_name="
         data2sheet.doPost(payload)
     except Exception as e:
         print(f"❌ 儲存失敗: {e}")
+@app.route("/set_current_topic", methods=["POST"])
+def set_current_topic():
+    try:
+        data = request.json
+        topic = data.get("topic")
+        
+        if topic:
+            # 1. 更新當前主題
+            session["current_topic"] = topic
+            
+            # 2. 切換主題時，務必清除「上一題」的暫存狀態
+            # 避免使用者在 A 主題答題，卻被判定為回答 B 主題的題目
+            session.pop('last_practice_questions', None)
+            
+            print(f"✅ 主題已切換至: {topic}")
+            return jsonify({"status": "success", "message": f"Topic set to {topic}"})
+        
+        return jsonify({"error": "No topic provided"}), 400
+    except Exception as e:
+        print(f"❌ 切換主題失敗: {e}")
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     # 在 EC2 部署時建議關閉 debug
