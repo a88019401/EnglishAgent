@@ -1,5 +1,7 @@
 from flask import Flask, request, jsonify, render_template, session
 from flask_cors import CORS
+from flask_sqlalchemy import SQLAlchemy
+from datetime import datetime
 import boto3
 import json
 import requests
@@ -19,9 +21,42 @@ from rag_utils import (
 )
 import data2sheet
 
+# --- AWS RDS 配置 ---
 app = Flask(__name__)
 app.secret_key = "aws_agent_secure_key"
+
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://admin:12345678@database-1.cpmu2i0isc0x.ap-southeast-2.rds.amazonaws.com:3306/database-1'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db = SQLAlchemy(app)
 CORS(app)
+
+# 1. 對應 image_5708e6.png (使用者資料)
+class User(db.Model):
+    __tablename__ = 'users'
+    id = db.Column(db.Integer, primary_key=True)
+    student = db.Column(db.String(50), unique=True, nullable=False)
+    pwd = db.Column(db.String(50), nullable=False)
+
+# 2. 對應 image_5708c9.png (對話紀錄)
+class StudentLog(db.Model):
+    __tablename__ = 'student_logs'
+    id = db.Column(db.Integer, primary_key=True)
+    student = db.Column(db.String(50), index=True)
+    category = db.Column(db.String(50))
+    topic = db.Column(db.String(255))
+    user_input = db.Column(db.Text)
+    agent_output = db.Column(db.Text)
+    timestamp = db.Column(db.DateTime, default=datetime.now)
+
+# 初始化資料表
+with app.app_context():
+    db.create_all()
+
+with app.app_context():
+    if not User.query.filter_by(student='admin').first():
+        admin_user = User(student='admin', pwd='admin')
+        db.session.add(admin_user)
+        db.session.commit()
 
 # --- AWS Bedrock 初始化 ---
 # 注意：請確保您的 EC2 區域與 Bedrock 區域一致 (例如 ap-southeast-2)
@@ -34,7 +69,7 @@ def call_bedrock(system_prompt, user_content, model_type="sonnet"):
     model_type: "sonnet" (高品質) 或 "haiku" (快速低成本)
     """
     if model_type == "sonnet":
-        model_id = "anthropic.claude-3-5-sonnet-20240620-v1:0"
+        model_id = "us.anthropic.claude-3-5-sonnet-20240620-v1:0"
     else:
         model_id = "anthropic.claude-3-haiku-20240307-v1:0"
 
@@ -68,9 +103,17 @@ def index():
 
 @app.route("/login", methods=["POST"])
 def login():
-    payload = request.json
-    res = requests.post(gas_url, json=payload)
-    return res.text, res.status_code
+    data = request.json
+    username = data.get("username")
+    password = data.get("password")
+    
+    # 查詢資料庫是否存在該用戶且密碼正確
+    user = User.query.filter_by(student=username, pwd=password).first()
+    
+    if user:
+        return jsonify({"status": "success", "message": "Login successful"})
+    else:
+        return jsonify({"status": "fail", "message": "Invalid username or password"}), 401
 
 @app.route("/englishAgent")
 def englishAgent():
@@ -79,23 +122,32 @@ def englishAgent():
 
 @app.route("/fetchHistoryData", methods=["POST"])
 def fetchHistoryData():
+
     payload = request.json
-    res = requests.post(gas_url, json=payload)
-
-    if res.status_code != 200:
-        return jsonify({"error": "GAS Error"}), 500
-
-    gas_data = res.json()
     student_id = payload.get("data")
     action = payload.get("action")
+
+    # 從 RDS 撈取資料
+    logs = StudentLog.query.filter_by(student=student_id).order_by(StudentLog.timestamp.asc()).all()
+    
+    # 格式化為原本程式預期的 list
+    history_data = [
+        {
+            "student": l.student,
+            "category": l.category,
+            "topic": l.topic,
+            "user": l.user_input,
+            "agent": l.agent_output
+        } for l in logs
+    ]
 
     if action in ["fetch_topics", "fetch_detail"]:
         if action == "fetch_detail":
             current_topic = session.get("current_topic")
-            if isinstance(gas_data, list):
+            if isinstance(history_data, list):
                 # 1. 取出最後 3 筆 (或是你設定的對話輪數)
                 # Python 的 [-3:] 會自動處理長度不足 3 的情況，非常安全
-                recent_logs = gas_data[-3:] 
+                recent_logs = history_data[-3:] 
                 
                 # 2. 更新 Session
                 session["recent_history"] = recent_logs
@@ -106,10 +158,9 @@ def fetchHistoryData():
             
             print(f"🔄 [Context Reloaded]: Topic '{current_topic}' loaded with {len(recent_logs)} turns.")
         
-            return jsonify(gas_data)
+            return jsonify(history_data)
         else:
-            return jsonify(gas_data)
-    history_data = gas_data
+            return jsonify(history_data)
     
     print(json.dumps(history_data, ensure_ascii=False, indent=2))    
     # 情況 A: 沒有歷史紀錄 - 使用 Bedrock 生成歡迎詞
@@ -274,14 +325,19 @@ def ask_multiagent_rag():
 
 def save_to_sheet(student_id, category, topic, user_msg, agent_msg, sheet_name="student_data"):
     try:
-        payload = {
-            "sheetName": sheet_name, 
-            "action": "add", 
-            "data": [{"student": student_id, "category": category, "topic": topic, "user": user_msg, "agent": agent_msg}]
-        }
-        data2sheet.doPost(payload)
+        new_log = StudentLog(
+            student=student_id,
+            category=category,
+            topic=topic,
+            user_input=user_msg,
+            agent_output=agent_msg
+        )
+        db.session.add(new_log)
+        db.session.commit()
     except Exception as e:
-        print(f"❌ 儲存失敗: {e}")
+        db.session.rollback()
+        print(f"❌ 儲存至 RDS 失敗: {e}")
+
 @app.route("/set_current_topic", methods=["POST"])
 def set_current_topic():
     try:
