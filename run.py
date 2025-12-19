@@ -288,30 +288,29 @@ def ask_multiagent_rag():
         resp_type = "answer"
 
         # B: 教學
-    elif intent == "LESSON" and not has_valid_material:
-        # 仍維持 prompts.py 的「直球教學」風格：不客套、不推託；用明確問題把需求問清楚
-        system_msg = "你是台灣國中英文老師。回覆必須用 Markdown、繁體中文、直接講重點，不要客套話。"
-        prompt = (
-            f"教材內容目前不足以完整教「{search_term or user_prompt}」。\n"
-            "請用以下格式回覆：\n"
-            "### 你要學的範圍\n"
-            "- (用一句話說你缺的資訊)\n"
-            "### 我需要你補充\n"
-            "- 你要的是哪一種？(請給 3 個選項讓使用者選)\n"
-            "### 先給你一個最小可用的重點\n"
-            "- (給 3~5 點最核心的規則或例句骨架，但不要離題)\n"
-        )
-        agent_answer = call_bedrock(system_msg, prompt, model_type="haiku")
-        resp_type = "lesson"
     elif intent == "LESSON":
+        # 1. 優先判斷：教材是否充足？
         if not has_valid_material:
-            # 直接報錯，不讓 AI 進入「詢問模式」，確保正確性
-            agent_answer = f"### ⚠️ 教材未涵蓋此主題\n抱歉，在目前的教材資料庫（{', '.join(['H版', 'K版', 'N版'])}）中找不到關於「{search_term or user_prompt}」的正確說明。為了保證教學內容精確，我目前無法針對此主題提供教學。"
-            resp_type = "chat"
+            # 如果教材不足，直接告知不符合內容，不再進行無謂的詢問
+            agent_answer = (
+                f"### ⚠️ 教材未涵蓋此主題\n"
+                f"抱歉，在目前的教材資料庫找不到關於「{search_term or user_prompt}」的內容。\n"
+                f"為了確保教學正確性，我目前無法提供此主題的說明。建議您更換主題，或確認關鍵字是否正確。"
+            )
+            resp_type = "chat"  # 設為 chat 避免觸發後續的教學練習邏輯
         else:
-            # 只有在搜到教材時，才讓 Sonnet 模型嚴格根據教材輸出
-            system_msg = "你是台灣國中英文老師。你必須【嚴格且完全】依照【教材參考】進行回答。如果教材內容不足以解釋，請直接告知無法完整回答，禁止自行編造或引入教材外的文法。請用繁體中文 Markdown 直接講重點。"
-            prompt = format_lesson_prompt(user_prompt, manual_context, chat_history_str, session.get("last_practice_questions", ""), search_term)
+            # 2. 教材充足：使用 Sonnet 嚴格根據教材教學
+            system_msg = (
+                "你是專業的台灣國中英文老師。你必須【嚴格且完全】依照提供的【教材參考】進行回答。\n"
+                "【禁令】：禁止自行編造文法、禁止引入教材外的知識。如果教材解釋不全，請直接告知。禁止開場客套。"
+            )
+            prompt = format_lesson_prompt(
+                user_prompt, 
+                manual_context, 
+                chat_history_str, 
+                session.get("last_practice_questions", ""), 
+                search_term
+            )
             agent_answer = call_bedrock(system_msg, prompt, model_type="sonnet")
             resp_type = "lesson"
     # C: 出題
