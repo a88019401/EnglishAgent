@@ -56,7 +56,7 @@ def search_question_bank(query_text, top_k=5):
     documents = results["documents"][0] if results["documents"] else []
     return "\n---\n".join(documents)
 
-def search_manual_chunks(query_text, top_k=3, file_filter=None):
+def search_manual_chunks(query_text, top_k=8, file_filter=None):
     embedding = get_embedding(query_text)
     
     where_clause = None 

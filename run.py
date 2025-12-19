@@ -305,13 +305,15 @@ def ask_multiagent_rag():
         resp_type = "lesson"
     elif intent == "LESSON":
         if not has_valid_material:
-            agent_answer = f"抱歉，我目前的教材資料庫中好像還沒有關於「{search_term or user_prompt}」的內容。我們可以先討論其他主題嗎？"
+            # 直接報錯，不讓 AI 進入「詢問模式」，確保正確性
+            agent_answer = f"### ⚠️ 教材未涵蓋此主題\n抱歉，在目前的教材資料庫（{', '.join(['H版', 'K版', 'N版'])}）中找不到關於「{search_term or user_prompt}」的正確說明。為了保證教學內容精確，我目前無法針對此主題提供教學。"
+            resp_type = "chat"
         else:
-            system_msg = "你是台灣國中英文老師。必須嚴格依照【教材參考】回答；用繁體中文 Markdown；禁止客套開場白。"
+            # 只有在搜到教材時，才讓 Sonnet 模型嚴格根據教材輸出
+            system_msg = "你是台灣國中英文老師。你必須【嚴格且完全】依照【教材參考】進行回答。如果教材內容不足以解釋，請直接告知無法完整回答，禁止自行編造或引入教材外的文法。請用繁體中文 Markdown 直接講重點。"
             prompt = format_lesson_prompt(user_prompt, manual_context, chat_history_str, session.get("last_practice_questions", ""), search_term)
             agent_answer = call_bedrock(system_msg, prompt, model_type="sonnet")
             resp_type = "lesson"
-
     # C: 出題
     elif intent == "QUIZ":
         system_msg = "你是英文測驗老師。篩選 5 題英文單選題。只提供題目，不提供答案。"
